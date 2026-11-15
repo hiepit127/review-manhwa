@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import shutil
+import subprocess
 import wave
 
 import pytest
@@ -86,6 +88,56 @@ def test_sample_needs_a_name_and_a_file(tmp_path):
         check_sample("Hải Đăng", str(tmp_path / "missing.wav"))
     with pytest.raises(RuntimeError, match="file giọng mẫu"):
         check_sample("Giọng mới", None)
+
+
+def _mp3(path: str, seconds: float = 3.0) -> str:
+    if not shutil.which("ffmpeg"):
+        pytest.skip("cần ffmpeg")
+    subprocess.run(
+        [
+            "ffmpeg",
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            f"sine=frequency=440:duration={seconds}",
+            "-q:a",
+            "7",
+            path,
+        ],
+        check=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    return path
+
+
+def test_mp3_sample_is_stored_as_wav(tmp_path, monkeypatch):
+    monkeypatch.setenv("RM_VOICES_DIR", str(tmp_path / "voices"))
+    src = _mp3(str(tmp_path / "mau.mp3"))
+    record = store_sample("Giọng mp3", src, language="Việt Nam", category="Review")
+    assert record["path"].endswith(".wav")
+    assert record["file"].endswith(".wav")
+    with wave.open(record["path"], "rb") as handle:
+        heard = handle.getnframes() / float(handle.getframerate())
+    assert 2.5 < heard < 3.5
+    assert is_saved("Giọng mp3")
+
+
+def test_mp3_still_converts_when_soundfile_cannot_read_it(tmp_path, monkeypatch):
+    import soundfile
+
+    monkeypatch.setenv("RM_VOICES_DIR", str(tmp_path / "voices"))
+    src = _mp3(str(tmp_path / "mau.mp3"), seconds=3)
+
+    def unreadable(*_args, **_kwargs):
+        raise RuntimeError("libsndfile không đọc MP3")
+
+    monkeypatch.setattr(soundfile, "read", unreadable)
+    record = store_sample("Giọng ffmpeg", src)
+    with wave.open(record["path"], "rb") as handle:
+        heard = handle.getnframes() / float(handle.getframerate())
+    assert 2.5 < heard < 3.5
 
 
 def test_short_sample_is_rejected(tmp_path, monkeypatch):
