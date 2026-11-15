@@ -8,7 +8,7 @@ import os
 import shutil
 import sys
 
-from src.paths import ROOT, jobs_dir
+from src.paths import ROOT
 
 
 def _in_colab() -> bool:
@@ -42,6 +42,12 @@ def doctor() -> str:
             lines.append(f"{module}: ok")
         except Exception as error:
             lines.append(f"{module}: thiếu ({error.__class__.__name__})")
+    try:
+        from src.storage import summary_lines
+
+        lines.extend(summary_lines().splitlines())
+    except Exception as error:
+        lines.append(f"storage: lỗi ({error.__class__.__name__})")
     return "\n".join(lines)
 
 
@@ -65,17 +71,16 @@ def choose_port(port: int | None) -> int | None:
 
 
 def launch(share=None, port: int | None = 7860):
-    if _in_colab():
-        os.environ.setdefault("HF_HOME", "/content/hf-cache")
+    from src.storage import allowed_paths, prepare_runtime, summary_lines
+
+    prepare_runtime()
+    print(summary_lines())
     os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
     os.chdir(ROOT)
-    folder = jobs_dir()
     if share is None:
         share = _in_colab()
-    import gradio as gr
-
     from src.ports import close_ports
-    from src.ui import CSS, build_demo
+    from src.ui import CSS, HEAD, I18N, THEME, build_demo
 
     close_ports(port or 7860)
     demo = build_demo()
@@ -83,11 +88,14 @@ def launch(share=None, port: int | None = 7860):
         "server_name": "0.0.0.0",
         "server_port": choose_port(port),
         "share": share,
-        "allowed_paths": [folder],
+        "allowed_paths": allowed_paths(),
         "show_error": True,
         "max_file_size": "1024mb",
         "css": CSS,
-        "theme": gr.themes.Soft(primary_hue="indigo", neutral_hue="slate"),
+        "theme": THEME,
+        "i18n": I18N,
+        "head": HEAD,
+        "footer_links": [],
     }
     if _in_notebook():
         kwargs["inline"] = True

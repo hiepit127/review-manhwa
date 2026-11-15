@@ -8,14 +8,13 @@ import shutil
 import subprocess
 import wave
 
-from src.paths import ROOT
 from src.textutil import slugify
 
 
 def voices_dir() -> str:
-    path = os.environ.get("RM_VOICES_DIR") or os.path.join(ROOT, "voices")
-    os.makedirs(path, exist_ok=True)
-    return path
+    from src.storage import voices_dir as resolved
+
+    return resolved()
 
 
 def _index_path() -> str:

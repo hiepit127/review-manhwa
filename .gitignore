@@ -6,5 +6,6 @@ __pycache__/
 venv/
 jobs/
 voices/
+cache/
 output/
 .DS_Store

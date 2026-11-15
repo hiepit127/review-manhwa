@@ -18,6 +18,40 @@ def new_job_id() -> str:
     return time.strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:6]
 
 
+def list_recent_jobs(limit: int = 30) -> list[tuple[str, str]]:
+    """Nhãn hiển thị và id, mới nhất trước. Bỏ qua thư mục phụ như trang dán."""
+    folder = jobs_dir()
+    rows = []
+    try:
+        names = os.listdir(folder)
+    except OSError:
+        return []
+    for name in names:
+        if name.startswith("_"):
+            continue
+        manifest = os.path.join(folder, name, "manifest.json")
+        if not os.path.isfile(manifest):
+            continue
+        try:
+            with open(manifest, encoding="utf-8") as handle:
+                job = json.load(handle)
+            stamp = os.path.getmtime(manifest)
+        except (OSError, json.JSONDecodeError):
+            continue
+        title = (job.get("title") or "Chưa đặt tên").strip() or "Chưa đặt tên"
+        if len(title) > 42:
+            title = title[:41] + "…"
+        chapter = (job.get("chapter") or "").strip()
+        panels = len(job.get("panels") or [])
+        bits = [title]
+        if chapter:
+            bits.append(chapter)
+        bits.append(f"{panels} panel")
+        rows.append((stamp, " · ".join(bits), name))
+    rows.sort(key=lambda item: item[0], reverse=True)
+    return [(label, job_id) for _, label, job_id in rows[:limit]]
+
+
 def save_job(job: dict) -> None:
     folder = job_dir(job["id"])
     os.makedirs(folder, exist_ok=True)
