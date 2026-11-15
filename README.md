@@ -9,9 +9,10 @@ Chỉ đưa file truyện bạn có quyền sử dụng. Tool không tải chư�
 ## Chạy trên Colab
 
 1. Mở notebook bằng nút phía trên.
-2. `Runtime` → `Change runtime type` → **T4 GPU**.
-3. Chạy lần lượt hai ô cài đặt rồi ô mở giao diện.
-4. Mở link Gradio (khung trong notebook hoặc link `gradio.live`).
+2. Nếu repo private: Colab → **Secrets**, thêm `GITHUB_TOKEN` (quyền đọc nội dung repo) và bật **Notebook access**.
+3. `Runtime` → `Change runtime type` → **T4 GPU**.
+4. Chạy lần lượt hai ô cài đặt rồi ô mở giao diện.
+5. Mở link Gradio (khung trong notebook hoặc link `gradio.live`).
 
 Trong giao diện:
 
