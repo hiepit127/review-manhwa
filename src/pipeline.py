@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import os
 
+from src.cache import audio_can_reuse, fingerprint, lookup_cached_job, remember_audio, remember_job
 from src.ingest import collect_pages
 from src.jobs import apply_narrations, job_abs, load_job, new_job_id, save_job, table_rows
 from src.panels import slice_pages
 from src.paths import job_dir
 from src.scenes import group_panels
+from src.storage import publish_outputs
 from src.textutil import file_path, public_error, slugify
 
 
@@ -41,6 +43,7 @@ def prepare_job(
     do_ocr: bool,
     langs,
     use_gpu: bool,
+    use_cache: bool = True,
     log,
     progress=None,
 ) -> dict:
@@ -52,6 +55,27 @@ def prepare_job(
             paths.append(path)
     if not paths:
         raise RuntimeError("Hãy tải ảnh, PDF, ZIP, hoặc dán từng trang rồi bấm Tách panel.")
+
+    key = ""
+    if use_cache:
+        key = fingerprint(
+            paths,
+            start_page=start_page,
+            end_page=end_page,
+            do_slice=do_slice,
+            rtl=rtl,
+            do_ocr=do_ocr,
+            langs=langs,
+        )
+        cached_id = lookup_cached_job(key)
+        if cached_id:
+            job = load_job(cached_id)
+            _meta(job, title, chapter, lore)
+            save_job(job)
+            log(f"Dùng lại cache {job['id']} — bỏ qua tách panel và OCR.")
+            log(f"Thư mục: {job['dir']}")
+            progress(1, desc="Dùng cache")
+            return job
 
     job_id = new_job_id()
     folder = job_dir(job_id)
@@ -91,7 +115,21 @@ def prepare_job(
     }
     save_job(job)
     job["dir"] = folder
+    remember_job(
+        key
+        or fingerprint(
+            paths,
+            start_page=start_page,
+            end_page=end_page,
+            do_slice=do_slice,
+            rtl=rtl,
+            do_ocr=do_ocr,
+            langs=langs,
+        ),
+        job_id,
+    )
     log(f"Xong {len(panels)} panel.")
+    log(f"Đã lưu cache tại {folder}")
     progress(1, desc="Xong panel")
     return job
 
@@ -129,7 +167,7 @@ def write_script(
     if not job["scenes"]:
         raise RuntimeError("Chưa có panel để viết lời.")
     if not use_vision and not any((scene.get("ocr") or "").strip() for scene in job["scenes"]):
-        raise RuntimeError("Chưa có chữ OCR. Bật 'Gửi ảnh cho model' hoặc chạy lại OCR.")
+        raise RuntimeError("Chưa có chữ OCR. Bật 'Gửi ảnh panel cho model' hoặc chạy lại OCR.")
     from src.script import generate_narrations
 
     for scene in job["scenes"]:
@@ -246,8 +284,12 @@ def render_job(
     for index, scene in enumerate(scenes):
         progress(0.05 + 0.4 * index / total, desc=f"Đọc cảnh {scene['id']}")
         dest = os.path.join(audio_dir, f"scene_{int(scene['id']):03d}.wav")
-        log(f"TTS cảnh {scene['id']}")
-        synthesize_to_file(scene["narration"], chosen, dest, None)
+        if audio_can_reuse(dest, scene["narration"], chosen):
+            log(f"Dùng lại audio cảnh {scene['id']}")
+        else:
+            log(f"TTS cảnh {scene['id']}")
+            synthesize_to_file(scene["narration"], chosen, dest, None)
+            remember_audio(dest, scene["narration"], chosen)
         payloads.append(
             {
                 "images": [job_abs(job, relative) for relative in scene["images"]],
@@ -271,5 +313,15 @@ def render_job(
     )
     job["video"] = os.path.relpath(video, job["dir"])
     job["srt"] = os.path.relpath(srt, job["dir"])
+    try:
+        published_video, published_srt = publish_outputs(video, srt, job["id"], output_filename(job))
+    except OSError as error:
+        log(f"Không chép được sang thư mục output: {error}")
+        published_video, published_srt = video, srt
+    else:
+        log(f"Đã lưu video: {published_video}")
+        log(f"Đã lưu phụ đề: {published_srt}")
+    job["published_video"] = published_video
+    job["published_srt"] = published_srt
     save_job(job)
-    return video, srt
+    return published_video, published_srt

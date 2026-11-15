@@ -8,9 +8,9 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 def jobs_dir() -> str:
-    path = os.environ.get("RM_JOBS_DIR") or os.path.join(ROOT, "jobs")
-    os.makedirs(path, exist_ok=True)
-    return path
+    from src.storage import jobs_dir as resolved
+
+    return resolved()
 
 
 def job_dir(job_id: str) -> str:

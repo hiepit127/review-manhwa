@@ -11,15 +11,24 @@ Chỉ đưa file truyện bạn có quyền sử dụng. Tool không tải chư�
 1. Mở notebook bằng nút phía trên.
 2. Nếu repo private: Colab → **Secrets**, thêm `GITHUB_TOKEN` (quyền đọc nội dung repo) và bật **Notebook access**.
 3. `Runtime` → `Change runtime type` → **T4 GPU**.
-4. Chạy lần lượt hai ô cài đặt rồi ô mở giao diện.
+4. Chạy lần lượt các ô. Ô mở giao diện sẽ hỏi quyền Google Drive.
 5. Mở link Gradio (khung trong notebook hoặc link `gradio.live`).
 
-Trong giao diện:
+Drive gắn vào `My Drive/ReviewManhwa/`, cùng kiểu với tool Audio Full Truyện (`AudioFullTruyen/data`):
 
-1. **Nguồn** — tải ảnh, PDF hoặc ZIP, hoặc dán từng trang vào ô ảnh rồi bấm `Thêm trang này`. Sau đó bấm `Tách panel`.
-2. **Kịch bản** — dán API key xAI (tạo tại [console.x.ai](https://console.x.ai)), bấm `Viết kịch bản`. Model mặc định là `grok-4.7`. Sửa cột `Lời review` nếu câu chữ chưa ổn. Không có API thì bấm `Chia cảnh để viết tay`.
-3. **Nghe thử giọng** — chọn giọng có sẵn và bấm `Nghe giọng này`. Muốn giọng riêng: đưa file mẫu 3–8 giây, đặt tên, rồi `Lưu giọng vào danh sách`.
-4. **Giọng và video** — giọng vừa chọn được dùng khi `Xuất video`. `Nghe thử câu kịch bản` đọc câu đầu của kịch bản.
+- `cache/` — panel, chữ OCR, audio, giọng đã lưu, việc đang làm
+- `output/` — video mp4 và phụ đề srt
+
+Đổi thư mục bằng biến `RM_DRIVE_ROOT` (đường dẫn tuyệt đối, hoặc tên thư mục trong My Drive) trước khi mở giao diện, hoặc trong accordion **Đổi thư mục gốc**. Không gắn được Drive, hoặc thư mục không ghi được, thì tool lưu vào `cache/` và `output/` cạnh mã nguồn. Cùng file và cùng cách tách thì lần sau dùng lại cache, khỏi OCR lại.
+
+Trong giao diện, thanh trên cùng hiện đang lưu ở đâu. Làm lần lượt bốn bước:
+
+1. **Nguồn** — tải ảnh, PDF hoặc ZIP, hoặc dán từng trang vào ô ảnh rồi bấm `Thêm trang này`. Sau đó bấm `Tách panel`. Việc cũ nằm ở **Việc đã lưu**.
+2. **Kịch bản** — dán API key xAI (tạo tại [console.x.ai](https://console.x.ai)), bấm `Viết kịch bản`. Model mặc định là `grok-4.7`. Sửa cột `Lời review` nếu câu chữ chưa ổn. Không có API thì bấm `Chia cảnh, tôi viết tay`.
+3. **Giọng** — chọn giọng có sẵn hoặc giọng đã clone, rồi bấm `Nghe giọng này`.
+4. **Video** — `Nghe thử câu kịch bản` đọc câu đầu. `Xuất video` ghép file và chép vào thư mục output. Đường dẫn hiện ở ô `File đã lưu`.
+
+Tab **Giọng TTS** nằm ngoài bốn bước đó. Tải lên hoặc thu một đoạn 3–8 giây, đặt tên, rồi `Lưu giọng này`. VieNeu v3 Turbo clone từ đoạn mẫu, không cần lời của đoạn đó; ô lời chỉ để ghi nhớ. Giọng đã lưu nghe lại, đổi tên hoặc xóa được, và hiện trong bước **Giọng**. Dán chữ rồi `Đọc đoạn này` để nghe và tải file wav trong thư mục output. Giọng nằm ở `cache/voices`.
 
 API key chỉ nằm trong RAM của phiên, không ghi vào `manifest.json`. Lần đầu VieNeu tải model (vài trăm MB) từ Hugging Face.
 
@@ -43,7 +52,7 @@ pip install -r requirements.txt
 python app.py
 ```
 
-Mở `http://127.0.0.1:7860`. Máy không có NVIDIA thì VieNeu chạy CPU và chậm hơn. `python app.py --doctor` in những thư viện còn thiếu. Cổng còn bị giữ thì chạy `python scripts/close_port.py` hoặc `scripts/close_port.sh`.
+Mở `http://127.0.0.1:7860`. Máy không có NVIDIA thì VieNeu chạy CPU và chậm hơn. Không gắn Drive thì cache nằm ở `cache/`, video ở `output/`. `python app.py --doctor` in thư viện còn thiếu và thư mục đang lưu. Cổng còn bị giữ thì chạy `python scripts/close_port.py` hoặc `scripts/close_port.sh`.
 
 ```bash
 pytest

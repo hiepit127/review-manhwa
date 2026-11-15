@@ -8,14 +8,13 @@ import shutil
 import subprocess
 import wave
 
-from src.paths import ROOT
 from src.textutil import slugify
 
 
 def voices_dir() -> str:
-    path = os.environ.get("RM_VOICES_DIR") or os.path.join(ROOT, "voices")
-    os.makedirs(path, exist_ok=True)
-    return path
+    from src.storage import voices_dir as resolved
+
+    return resolved()
 
 
 def _index_path() -> str:
@@ -37,7 +36,14 @@ def saved_voices() -> list[dict]:
         filename = os.path.basename(str(item.get("file") or ""))
         if not name or not filename:
             continue
-        rows.append({"name": name, "file": filename, "path": os.path.join(voices_dir(), filename)})
+        rows.append(
+            {
+                "name": name,
+                "file": filename,
+                "path": os.path.join(voices_dir(), filename),
+                "transcript": str(item.get("transcript") or "").strip(),
+            }
+        )
     return rows
 
 
@@ -50,8 +56,29 @@ def is_saved(name: str) -> bool:
     return any(item["name"].casefold() == folded for item in saved_voices())
 
 
+def find_saved(name: str) -> dict | None:
+    folded = (name or "").strip().casefold()
+    if not folded:
+        return None
+    return next((item for item in saved_voices() if item["name"].casefold() == folded), None)
+
+
+def saved_choice_pairs() -> list[tuple[str, str]]:
+    pairs = []
+    for item in saved_voices():
+        seconds = _duration(item["path"])
+        label = item["name"] if seconds is None else f"{item['name']} · {seconds:.1f} giây"
+        pairs.append((label, item["name"]))
+    return pairs
+
+
 def _write_index(rows: list[dict]) -> None:
-    payload = {"voices": [{"name": item["name"], "file": item["file"]} for item in rows]}
+    payload = {
+        "voices": [
+            {"name": item["name"], "file": item["file"], "transcript": item.get("transcript") or ""}
+            for item in rows
+        ]
+    }
     path = _index_path()
     temporary = path + ".tmp"
     with open(temporary, "w", encoding="utf-8") as handle:
@@ -102,7 +129,7 @@ def _to_wav(src: str, dest: str) -> None:
         raise RuntimeError("Không đọc được file mẫu. Hãy dùng file WAV.")
 
 
-def check_sample(name: str, src: str | None) -> str:
+def check_name(name: str) -> str:
     cleaned = (name or "").strip()
     if not cleaned:
         raise RuntimeError("Hãy đặt tên cho giọng.")
@@ -114,12 +141,17 @@ def check_sample(name: str, src: str | None) -> str:
     reserved.add("giongreview")
     if cleaned.casefold() in reserved:
         raise RuntimeError("Tên này trùng một giọng có sẵn. Hãy đặt tên khác.")
+    return cleaned
+
+
+def check_sample(name: str, src: str | None) -> str:
+    cleaned = check_name(name)
     if not src or not os.path.isfile(src):
         raise RuntimeError("Hãy chọn file giọng mẫu 3–8 giây.")
     return cleaned
 
 
-def store_sample(name: str, src: str) -> dict:
+def store_sample(name: str, src: str, transcript: str = "") -> dict:
     """Ghi file mẫu vào thư mục giọng. Chưa gọi model."""
     cleaned = check_sample(name, src)
     folder = voices_dir()
@@ -136,9 +168,24 @@ def store_sample(name: str, src: str) -> dict:
         raise RuntimeError("File mẫu quá ngắn. Hãy dùng đoạn khoảng 3–8 giây.")
     os.replace(partial, dest)
     rows = [item for item in saved_voices() if item["name"].casefold() != cleaned.casefold()]
-    rows.append({"name": cleaned, "file": filename})
+    spoken = (transcript or "").strip()
+    rows.append({"name": cleaned, "file": filename, "transcript": spoken})
     _write_index(rows)
-    return {"name": cleaned, "file": filename, "path": dest, "seconds": seconds}
+    return {"name": cleaned, "file": filename, "path": dest, "seconds": seconds, "transcript": spoken}
+
+
+def rename_saved(old: str, new: str) -> str:
+    cleaned = check_name(new)
+    rows = saved_voices()
+    match = next((item for item in rows if item["name"].casefold() == (old or "").strip().casefold()), None)
+    if match is None:
+        raise RuntimeError("Chỉ đổi tên được giọng đã lưu, không đổi giọng có sẵn.")
+    taken = find_saved(cleaned)
+    if taken and taken["name"].casefold() != match["name"].casefold():
+        raise RuntimeError("Đã có một giọng lưu mang tên này.")
+    match["name"] = cleaned
+    _write_index(rows)
+    return cleaned
 
 
 def forget_voice(name: str) -> str:
