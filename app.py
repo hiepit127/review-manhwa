@@ -45,7 +45,26 @@ def doctor() -> str:
     return "\n".join(lines)
 
 
-def launch(share=None, port: int = 7860):
+def _port_free(port: int) -> bool:
+    import socket
+
+    with socket.socket() as sock:
+        try:
+            sock.bind(("127.0.0.1", port))
+        except OSError:
+            return False
+    return True
+
+
+def choose_port(port: int | None) -> int | None:
+    """Giữ cổng yêu cầu khi còn trống. Cổng bận thì để Gradio tìm cổng kế tiếp."""
+    if port is None or _port_free(port):
+        return port
+    print(f"Cổng {port} đang bận. Mở cổng trống kế tiếp.")
+    return None
+
+
+def launch(share=None, port: int | None = 7860):
     if _in_colab():
         os.environ.setdefault("HF_HOME", "/content/hf-cache")
     os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
@@ -57,10 +76,14 @@ def launch(share=None, port: int = 7860):
 
     from src.ui import CSS, build_demo
 
+    try:
+        gr.close_all()
+    except Exception:
+        pass
     demo = build_demo()
     kwargs = {
         "server_name": "0.0.0.0",
-        "server_port": port,
+        "server_port": choose_port(port),
         "share": share,
         "allowed_paths": [folder],
         "show_error": True,
