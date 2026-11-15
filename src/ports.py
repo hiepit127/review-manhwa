@@ -140,6 +140,15 @@ def close_ports(start: int = 7860, count: int = 10) -> list[int]:
         for pid, fd in _listeners(port):
             _release(pid, fd)
         time.sleep(0.1)
+        if not _port_free(port):
+            fuser = shutil.which("fuser")
+            if fuser:
+                subprocess.run(
+                    [fuser, "-k", f"{port}/tcp"],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+                time.sleep(0.1)
         if _port_free(port):
             freed.append(port)
             print(f"Đã đóng cổng {port}.")

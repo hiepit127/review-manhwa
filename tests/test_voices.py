@@ -124,6 +124,17 @@ def test_mp3_sample_is_stored_as_wav(tmp_path, monkeypatch):
     assert is_saved("Giọng mp3")
 
 
+def test_mp3_renamed_as_wav_is_still_decoded(tmp_path, monkeypatch):
+    monkeypatch.setenv("RM_VOICES_DIR", str(tmp_path / "voices"))
+    made = _mp3(str(tmp_path / "that.mp3"))
+    src = tmp_path / "doi-ten.wav"
+    shutil.copyfile(made, src)
+    record = store_sample("Giọng doi ten", str(src))
+    with wave.open(record["path"], "rb") as handle:
+        heard = handle.getnframes() / float(handle.getframerate())
+    assert 2.5 < heard < 3.5
+
+
 def test_mp3_still_converts_when_soundfile_cannot_read_it(tmp_path, monkeypatch):
     import soundfile
 

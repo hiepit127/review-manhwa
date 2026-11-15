@@ -135,29 +135,51 @@ def _ffmpeg() -> str | None:
         return None
 
 
+def _is_wav(path: str) -> bool:
+    try:
+        with open(path, "rb") as handle:
+            header = handle.read(12)
+    except OSError:
+        return False
+    return len(header) >= 12 and header[:4] == b"RIFF" and header[8:12] == b"WAVE"
+
+
+def _ffmpeg_to_wav(src: str, dest: str) -> str:
+    """Trả về chuỗi rỗng khi ghi được WAV. Không thì trả dòng lỗi cuối."""
+    ffmpeg = _ffmpeg()
+    if not ffmpeg:
+        return "chưa có ffmpeg trong PATH"
+    result = subprocess.run(
+        [ffmpeg, "-y", "-i", src, "-ac", "1", "-f", "wav", dest],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode == 0 and os.path.isfile(dest) and os.path.getsize(dest) >= 64 and _is_wav(dest):
+        return ""
+    lines = [line.strip() for line in (result.stderr or "").splitlines() if line.strip()]
+    return lines[-1] if lines else "ffmpeg không ghi được WAV"
+
+
 def _to_wav(src: str, dest: str) -> None:
-    """Đưa WAV, MP3 hoặc M4A về file WAV. Đuôi file đích không quyết định định dạng."""
-    if os.path.splitext(src)[1].lower() == ".wav":
+    """Đưa WAV, MP3 hoặc M4A về file WAV. Không tin đuôi file: MP3 đôi khi bị đặt tên .wav."""
+    if _is_wav(src):
         shutil.copyfile(src, dest)
+        return
+    note = _ffmpeg_to_wav(src, dest)
+    if not note:
         return
     try:
         import soundfile as sf
 
         data, rate = sf.read(src)
         sf.write(dest, data, rate, format="WAV")
-        return
-    except Exception:
-        pass
-    ffmpeg = _ffmpeg()
-    if not ffmpeg:
-        raise RuntimeError("Không đọc được file mẫu. Cần ffmpeg để đọc MP3 hoặc M4A.")
-    result = subprocess.run(
-        [ffmpeg, "-y", "-i", src, "-f", "wav", dest],
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0 or not os.path.isfile(dest) or os.path.getsize(dest) < 64:
-        raise RuntimeError("Không đọc được file MP3 hoặc M4A. Hãy thử file WAV.")
+        if os.path.isfile(dest) and os.path.getsize(dest) >= 64:
+            return
+    except Exception as error:
+        detail = str(error).strip().splitlines()
+        if detail:
+            note = f"{note}; {detail[-1]}"
+    raise RuntimeError(f"Không đọc được file mẫu MP3/M4A. {note}")
 
 
 def check_name(name: str) -> str:
