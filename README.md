@@ -18,7 +18,8 @@ Trong giao diện:
 
 1. **Nguồn** — tải ảnh, PDF hoặc ZIP, hoặc dán từng trang vào ô ảnh rồi bấm `Thêm trang này`. Sau đó bấm `Tách panel`.
 2. **Kịch bản** — dán API key xAI (tạo tại [console.x.ai](https://console.x.ai)), bấm `Viết kịch bản`. Model mặc định là `grok-4.7`. Sửa cột `Lời review` nếu câu chữ chưa ổn. Không có API thì bấm `Chia cảnh để viết tay`.
-3. **Giọng và video** — chọn giọng VieNeu, `Nghe thử`, rồi `Xuất video`. Có thể đưa file giọng mẫu 3–8 giây để clone trong phiên làm việc.
+3. **Nghe thử giọng** — chọn giọng có sẵn và bấm `Nghe giọng này`. Muốn giọng riêng: đưa file mẫu 3–8 giây, đặt tên, rồi `Lưu giọng vào danh sách`.
+4. **Giọng và video** — giọng vừa chọn được dùng khi `Xuất video`. `Nghe thử câu kịch bản` đọc câu đầu của kịch bản.
 
 API key chỉ nằm trong RAM của phiên, không ghi vào `manifest.json`. Lần đầu VieNeu tải model (vài trăm MB) từ Hugging Face.
 

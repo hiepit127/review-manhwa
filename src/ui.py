@@ -21,7 +21,8 @@ GUIDE = """
 1. Trên Colab chọn runtime **GPU**. Tải file, hoặc dán từng trang ảnh của chương bạn có quyền dùng.
 2. Bấm **Tách panel**. Có thể tải file, hoặc dán từng trang: Ctrl+V vào ô ảnh rồi bấm **Thêm trang này**.
 3. Dán API key xAI (console.x.ai), bấm **Viết kịch bản**. Sửa câu chữ ngay trên bảng.
-4. Chọn giọng VieNeu-TTS v3 Turbo, bấm **Nghe thử**, rồi **Xuất video**.
+4. Mở **Nghe thử giọng**, chọn giọng hoặc lưu giọng clone từ file mẫu, rồi nghe một câu.
+5. Sang **Giọng và video** và bấm **Xuất video**.
 
 Lần đầu VieNeu sẽ tải model. API key chỉ nằm trong phiên làm việc, không ghi vào file job.
 """
@@ -132,17 +133,72 @@ def on_manual(job_id, scene_count, title, chapter, lore):
         return gr.update(), log.text()
 
 
+def _voice_update(labels: list[str], selected: str | None = None):
+    if not labels:
+        labels = list(FALLBACK_VOICES)
+    if selected and selected in labels:
+        value = selected
+    elif "Hải Đăng" in labels:
+        value = "Hải Đăng"
+    else:
+        value = labels[0]
+    return gr.update(choices=labels, value=value)
+
+
 def on_voices():
     log = StepLog()
     try:
         from src.tts import list_voices
 
         labels = list_voices(log)
-        value = "Hải Đăng" if "Hải Đăng" in labels else labels[0]
-        return gr.update(choices=labels, value=value), log.text()
+        update = _voice_update(labels)
+        return update, update, log.text()
+    except Exception as error:
+        _fail(log, error)
+        return gr.update(), gr.update(), log.text()
+
+
+def on_save_voice(name, audio):
+    log = StepLog()
+    try:
+        from src.tts import list_voices, save_cloned_voice
+
+        saved = save_cloned_voice(name, file_path(audio), log)
+        update = _voice_update(list_voices(log), saved)
+        return update, update, gr.update(value=None), log.text()
+    except Exception as error:
+        _fail(log, error)
+        return gr.update(), gr.update(), gr.update(), log.text()
+
+
+def on_delete_voice(selected):
+    log = StepLog()
+    try:
+        from src.tts import delete_cloned_voice, voice_choices
+
+        delete_cloned_voice(selected, log)
+        update = _voice_update(voice_choices())
+        return update, update, log.text()
+    except Exception as error:
+        _fail(log, error)
+        return gr.update(), gr.update(), log.text()
+
+
+def on_hear(selected, text, audio, progress=gr.Progress()):
+    log = StepLog()
+    try:
+        from src.tts import speak_line
+
+        progress(0.2, desc="Đọc thử giọng")
+        path = speak_line(text, selected, file_path(audio), log)
+        return path, log.text()
     except Exception as error:
         _fail(log, error)
         return gr.update(), log.text()
+
+
+def on_pick_voice(selected):
+    return gr.update(value=selected)
 
 
 def on_preview(job_id, table, voice, ref_audio, progress=gr.Progress()):
@@ -284,12 +340,33 @@ Chỉ dùng với truyện bạn có quyền sử dụng. Tool không tải chư
                 )
                 script_file = gr.File(label="Tải script.json")
 
-            with gr.Tab("3. Giọng và video"):
+            with gr.Tab("3. Nghe thử giọng"):
+                gr.Markdown(
+                    "Chọn một giọng rồi bấm **Nghe giọng này**. "
+                    "Muốn dùng giọng của mình: đưa file mẫu 3–8 giây, đặt tên, rồi **Lưu giọng vào danh sách**."
+                )
+                with gr.Row():
+                    voice_lab = gr.Dropdown(choices=FALLBACK_VOICES, value="Hải Đăng", label="Giọng")
+                    refresh_lab = gr.Button("Tải danh sách giọng")
+                sample = gr.Audio(label="File giọng mẫu 3–8 giây", type="filepath")
+                clone_name = gr.Textbox(label="Tên giọng mới", placeholder="Ví dụ: Giọng review")
+                with gr.Row():
+                    save_voice = gr.Button("Lưu giọng vào danh sách")
+                    delete_voice = gr.Button("Xóa giọng đã lưu")
+                trial_text = gr.Textbox(
+                    label="Câu nghe thử",
+                    value="Xin chào. Đây là giọng sẽ đọc phần review.",
+                    lines=2,
+                )
+                hear = gr.Button("Nghe giọng này", variant="primary")
+                hear_audio = gr.Audio(label="Nghe thử giọng", type="filepath")
+
+            with gr.Tab("4. Giọng và video"):
                 with gr.Row():
                     voice = gr.Dropdown(choices=FALLBACK_VOICES, value="Hải Đăng", label="Giọng VieNeu-TTS v3 Turbo")
                     refresh = gr.Button("Tải danh sách giọng")
-                ref_audio = gr.Audio(label="Hoặc file giọng mẫu 3–8 giây (không bắt buộc)", type="filepath")
-                preview = gr.Button("Nghe thử")
+                ref_audio = gr.Audio(label="Hoặc file giọng mẫu 3–8 giây, nếu chưa lưu vào danh sách", type="filepath")
+                preview = gr.Button("Nghe thử câu kịch bản")
                 preview_audio = gr.Audio(label="Nghe thử", type="filepath")
                 with gr.Row():
                     video_format = gr.Radio(choices=[("YouTube 16:9", "youtube"), ("Shorts 9:16", "shorts")], value="youtube", label="Khung hình")
@@ -329,7 +406,12 @@ Chỉ dùng với truyện bạn có quyền sử dụng. Tool không tải chư
             [script_table, log_box],
         )
         provider.change(on_provider, provider, [base_url, model])
-        refresh.click(on_voices, None, [voice, log_box])
+        refresh_lab.click(on_voices, None, [voice_lab, voice, log_box])
+        refresh.click(on_voices, None, [voice, voice_lab, log_box])
+        voice_lab.change(on_pick_voice, voice_lab, voice)
+        save_voice.click(on_save_voice, [clone_name, sample], [voice_lab, voice, sample, log_box])
+        delete_voice.click(on_delete_voice, voice_lab, [voice_lab, voice, log_box])
+        hear.click(on_hear, [voice_lab, trial_text, sample], [hear_audio, log_box])
         preview.click(on_preview, [job_state, script_table, voice, ref_audio], [preview_audio, log_box])
         render.click(
             on_render,

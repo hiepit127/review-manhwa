@@ -38,6 +38,8 @@ FALLBACK_VOICES = [
 ]
 
 _ENGINE = None
+_ENROLLED: set[str] = set()
+DEFAULT_LINE = "Xin chào. Đây là giọng sẽ đọc phần review."
 
 
 def _empty_cache() -> None:
@@ -74,36 +76,92 @@ def get_engine(log=None):
         if log:
             log("VieNeu dùng CPU (ONNX).")
     _ENGINE = Vieneu()
+    register_saved(_ENGINE, log)
     return _ENGINE
 
 
+def _voice_id(item) -> str:
+    if isinstance(item, (list, tuple)) and len(item) >= 2:
+        return str(item[1])
+    if isinstance(item, (list, tuple)) and item:
+        return str(item[0])
+    return str(item)
+
+
+def register_saved(engine, log=None) -> None:
+    """Đưa các giọng đã lưu vào model của phiên này, mỗi giọng một lần."""
+    from src.voices import saved_voices
+
+    for item in saved_voices():
+        name = item["name"]
+        if name in _ENROLLED:
+            continue
+        if not os.path.isfile(item["path"]):
+            continue
+        try:
+            engine.add_voice(name, item["path"], denoise=False)
+        except TypeError:
+            engine.add_voice(name, item["path"])
+        except Exception as error:
+            if log:
+                log(f"Không mở được giọng đã lưu {name}: {error}")
+            continue
+        _ENROLLED.add(name)
+
+
 def list_voices(log=None) -> list[str]:
+    from src.voices import saved_names
+
     engine = get_engine(log)
     try:
         voices = engine.list_preset_voices()
     except Exception as error:
         if log:
             log(f"Không lấy được danh sách giọng ({error}). Dùng danh sách có sẵn.")
-        return list(FALLBACK_VOICES)
+        voices = []
     labels = []
     for item in voices or []:
-        if isinstance(item, (list, tuple)) and item:
-            labels.append(str(item[0]))
-        else:
-            labels.append(str(item))
-    return labels or list(FALLBACK_VOICES)
+        label = _voice_id(item)
+        if label not in labels:
+            labels.append(label)
+    if not labels:
+        labels = list(FALLBACK_VOICES)
+    for name in saved_names():
+        if name not in labels:
+            labels.append(name)
+    return labels
+
+
+def voice_choices() -> list[str]:
+    """Danh sách hiện trên UI khi model chưa mở."""
+    from src.voices import saved_names
+
+    labels = list(FALLBACK_VOICES)
+    for name in saved_names():
+        if name not in labels:
+            labels.append(name)
+    return labels
 
 
 def _resolve_voice(engine, name: str) -> str:
     labels = []
     try:
         for item in engine.list_preset_voices() or []:
-            label = str(item[0] if isinstance(item, (list, tuple)) and item else item)
+            label = _voice_id(item)
+            shown = str(item[0]) if isinstance(item, (list, tuple)) and item else label
             labels.append(label)
-            if label.casefold() == name.casefold():
+            if name.casefold() in (label.casefold(), shown.casefold()):
                 return label
     except Exception:
         labels = []
+    resolver = getattr(engine, "resolve_voice_name", None)
+    if resolver:
+        try:
+            found = resolver(name)
+        except Exception:
+            found = None
+        if found:
+            return found
     if name in labels or not labels:
         return name
     raise RuntimeError("Không có giọng này. Các giọng đang có: " + ", ".join(labels))
@@ -111,17 +169,98 @@ def _resolve_voice(engine, name: str) -> str:
 
 def open_voice(voice: str, ref_audio: str | None, log=None) -> str:
     """Mở model một lần và trả về tên giọng sẽ dùng cho cả chương."""
+    from src.voices import is_saved
+
     engine = get_engine(log)
+    if is_saved(voice):
+        register_saved(engine, log)
+        if log:
+            log(f"Dùng giọng đã lưu {voice}.")
+        return _resolve_voice(engine, voice)
     if ref_audio:
         name = "GiongReview"
         try:
             engine.add_voice(name, ref_audio)
         except Exception:
             engine.add_voice(name, ref_audio, denoise=False)
+        _ENROLLED.add(name)
         if log:
             log("Đã lấy giọng từ file mẫu cho phiên này.")
         return name
     return _resolve_voice(engine, voice)
+
+
+def save_cloned_voice(name: str, ref_audio: str | None, log=None) -> str:
+    """Clone một file mẫu và ghi giọng vào danh sách."""
+    from src.voices import check_sample, saved_voices, store_sample
+
+    cleaned = check_sample(name, ref_audio)
+    if log:
+        log(f"Đang clone giọng {cleaned}.")
+    engine = get_engine(log)
+    register_saved(engine, log)
+    existing = {item.casefold() for item in _preset_names(engine)}
+    if cleaned.casefold() in existing and not any(item["name"].casefold() == cleaned.casefold() for item in saved_voices()):
+        raise RuntimeError("Tên này trùng một giọng có sẵn. Hãy đặt tên khác.")
+    record = store_sample(cleaned, ref_audio)
+    try:
+        try:
+            engine.add_voice(record["name"], record["path"])
+        except Exception:
+            engine.add_voice(record["name"], record["path"], denoise=False)
+    except Exception:
+        from src.voices import forget_voice
+
+        forget_voice(record["name"])
+        raise
+    _ENROLLED.add(record["name"])
+    seconds = record.get("seconds")
+    if log:
+        if seconds and seconds > 8:
+            log("File dài hơn 8 giây. VieNeu dùng khoảng 8 giây đầu.")
+        log(f"Đã lưu giọng {record['name']} vào danh sách.")
+    return record["name"]
+
+
+def delete_cloned_voice(name: str, log=None) -> str:
+    from src.voices import forget_voice
+
+    removed = forget_voice(name)
+    _ENROLLED.discard(removed)
+    if _ENGINE is not None:
+        remover = getattr(_ENGINE, "remove_voice", None)
+        if remover:
+            try:
+                remover(removed)
+            except Exception:
+                pass
+    if log:
+        log(f"Đã xóa giọng {removed}.")
+    return removed
+
+
+def _preset_names(engine) -> list[str]:
+    try:
+        return [_voice_id(item) for item in engine.list_preset_voices() or []]
+    except Exception:
+        return []
+
+
+def speak_line(text: str, voice: str, ref_audio: str | None, log=None) -> str:
+    """Đọc một câu để nghe giọng, không cần kịch bản."""
+    from src.paths import jobs_dir
+
+    spoken = (text or "").strip() or DEFAULT_LINE
+    if len(spoken) > 500:
+        spoken = spoken[:500].strip()
+        if log:
+            log("Câu nghe thử được cắt còn 500 ký tự.")
+    chosen = open_voice(voice, ref_audio if ref_audio else None, log)
+    dest = os.path.join(jobs_dir(), "_voice_preview", "preview.wav")
+    synthesize_to_file(spoken, chosen, dest, log)
+    if log:
+        log("Nghe thử xong.")
+    return dest
 
 
 def _infer(engine, text: str, voice: str):
