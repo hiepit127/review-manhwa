@@ -33,6 +33,52 @@ def test_saved_voice_stays_in_the_list(tmp_path, monkeypatch):
     assert again["path"] == record["path"]
 
 
+def test_clone_form_requires_consent_and_keeps_metadata(tmp_path, monkeypatch):
+    from src.voices import prepare_clone
+
+    monkeypatch.setenv("RM_VOICES_DIR", str(tmp_path / "voices"))
+    src = _wav(str(tmp_path / "mau.wav"), seconds=3)
+    with pytest.raises(RuntimeError, match="xác nhận"):
+        prepare_clone("Giọng review", src, "Xin chào.", False)
+    with pytest.raises(RuntimeError, match="180"):
+        prepare_clone("Giọng review", src, "à" * 181, True)
+    form = prepare_clone("Giọng review", src, "Xin chào các bạn.", True, "Việt Nam", "Review")
+    record = store_sample(
+        form["name"],
+        form["src"],
+        language=form["language"],
+        category=form["category"],
+        preview_text=form["preview"],
+    )
+    assert record["language"] == "Việt Nam"
+    assert record["category"] == "Review"
+    assert record["preview_text"] == "Xin chào các bạn."
+    huge = tmp_path / "lon.wav"
+    huge.write_bytes(b"RIFFxxxx" + b"0" * (10 * 1024 * 1024))
+    with pytest.raises(RuntimeError, match="10 MB"):
+        store_sample("Giọng to", str(huge))
+
+
+def test_create_voice_saves_even_when_preview_cannot_play(tmp_path, monkeypatch):
+    monkeypatch.setenv("RM_VOICES_DIR", str(tmp_path / "voices"))
+    monkeypatch.setenv("RM_OUTPUT_DIR", str(tmp_path / "out"))
+    monkeypatch.setattr("src.storage.find_drive_mount", lambda: None)
+
+    def boom(log=None):
+        raise RuntimeError("chưa có VieNeu")
+
+    monkeypatch.setattr("src.tts.get_engine", boom)
+    from src.tts import create_cloned_voice
+
+    src = _wav(str(tmp_path / "mau.wav"), seconds=3)
+    made = create_cloned_voice("Giọng review", src, "Xin chào.", True, "Việt Nam", "Podcast", log=lambda message: None)
+    assert made["name"] == "Giọng review"
+    assert made["warning"]
+    assert os.path.isfile(made["sample"])
+    assert is_saved("Giọng review")
+    assert made["preview"] == ""
+
+
 def test_sample_needs_a_name_and_a_file(tmp_path):
     with pytest.raises(RuntimeError, match="đặt tên"):
         check_sample("  ", str(tmp_path / "missing.wav"))
