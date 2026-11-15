@@ -12,6 +12,7 @@ from src.storage import (
     DEFAULT_NAME,
     describe,
     find_drive_mount,
+    prepare_runtime,
     publish_outputs,
     resolve_layout,
     set_root,
@@ -21,11 +22,13 @@ from src.textutil import StepLog
 
 def _isolate(monkeypatch, root):
     monkeypatch.setattr("src.storage.ROOT", str(root))
+    monkeypatch.setattr("src.storage._DOTENV_LOADED", False)
     monkeypatch.delenv("RM_DRIVE_ROOT", raising=False)
     monkeypatch.delenv("RM_CACHE_DIR", raising=False)
     monkeypatch.delenv("RM_OUTPUT_DIR", raising=False)
     monkeypatch.delenv("RM_JOBS_DIR", raising=False)
     monkeypatch.delenv("RM_VOICES_DIR", raising=False)
+    monkeypatch.delenv("HF_HOME", raising=False)
 
 
 def _page(path, color):
@@ -103,6 +106,24 @@ def test_drive_path_without_mount_does_not_invent_a_drive(tmp_path, monkeypatch)
     assert info["on_drive"] is False
     assert info["cache"] == str(tmp_path / "cache")
     assert not os.path.exists(target)
+
+
+def test_unmounted_drive_overrides_are_not_created(tmp_path, monkeypatch):
+    from src.storage import jobs_dir, voices_dir
+
+    _isolate(monkeypatch, tmp_path)
+    monkeypatch.setattr("src.storage.find_drive_mount", lambda: None)
+    jobs = "/content/drive/MyDrive/ReviewManhwa/cache/jobs"
+    voices = "/content/drive/MyDrive/ReviewManhwa/cache/voices"
+    output = "/content/drive/MyDrive/ReviewManhwa/output"
+    monkeypatch.setenv("RM_JOBS_DIR", jobs)
+    monkeypatch.setenv("RM_VOICES_DIR", voices)
+    monkeypatch.setenv("RM_OUTPUT_DIR", output)
+    assert jobs_dir() == str(tmp_path / "cache" / "jobs")
+    assert voices_dir() == str(tmp_path / "cache" / "voices")
+    info = resolve_layout()
+    assert info["output"] == str(tmp_path / "output")
+    assert not os.path.exists("/content/drive/MyDrive/ReviewManhwa")
 
 
 def test_jobs_dir_override_wins(tmp_path, monkeypatch):
@@ -191,8 +212,83 @@ def test_parent_path_is_rejected(tmp_path, monkeypatch):
     assert "không hợp lệ" in info["note"]
 
 
-def test_notebook_mounts_drive():
-    text = open(os.path.join(os.path.dirname(__file__), "..", "notebooks", "Review_Manhwa.ipynb"), encoding="utf-8").read()
-    assert "drive.mount" in text
+def test_set_root_clears_prepare_overrides(tmp_path, monkeypatch):
+    _isolate(monkeypatch, tmp_path / "repo")
+    monkeypatch.setattr("src.storage.find_drive_mount", lambda: None)
+    monkeypatch.setenv("RM_JOBS_DIR", str(tmp_path / "old-jobs"))
+    monkeypatch.setenv("RM_VOICES_DIR", str(tmp_path / "old-voices"))
+    monkeypatch.setenv("RM_CACHE_DIR", str(tmp_path / "old-cache"))
+    monkeypatch.setenv("RM_OUTPUT_DIR", str(tmp_path / "old-out"))
+    info = set_root(str(tmp_path / "CustomRoot"))
+    assert "RM_JOBS_DIR" not in os.environ
+    assert "RM_VOICES_DIR" not in os.environ
+    assert info["jobs"] == str(tmp_path / "CustomRoot" / "cache" / "jobs")
+    assert info["voices"] == str(tmp_path / "CustomRoot" / "cache" / "voices")
+    assert info["output"] == str(tmp_path / "CustomRoot" / "output")
+    assert os.path.isdir(info["jobs"])
+
+
+def test_prepare_runtime_puts_models_on_drive(tmp_path, monkeypatch):
+    _isolate(monkeypatch, tmp_path / "repo")
+    mount = tmp_path / "MyDrive"
+    mount.mkdir()
+    monkeypatch.setattr("src.storage.find_drive_mount", lambda: str(mount))
+    monkeypatch.delenv("HF_HUB_DISABLE_XET", raising=False)
+    monkeypatch.delenv("HF_HUB_DISABLE_SYMLINKS", raising=False)
+    info = prepare_runtime()
+    assert info["on_drive"] is True
+    assert info["hf"] == str(mount / DEFAULT_NAME / "hf-cache")
+    assert os.path.isdir(info["hf"])
+    assert os.environ["HF_HUB_DISABLE_XET"] == "1"
+    assert os.environ["HF_HUB_DISABLE_SYMLINKS"] == "1"
+
+
+def test_dotenv_fills_missing_path_and_does_not_override(tmp_path, monkeypatch):
+    root = tmp_path / "repo"
+    root.mkdir()
+    _isolate(monkeypatch, root)
+    mount = tmp_path / "MyDrive"
+    mount.mkdir()
+    monkeypatch.setattr("src.storage.find_drive_mount", lambda: str(mount))
+    chosen = tmp_path / "from-env"
+    monkeypatch.setenv("RM_OUTPUT_DIR", str(chosen))
+    (root / ".env").write_text(
+        "\n".join(
+            [
+                "# path only",
+                "RM_DRIVE_ROOT=TuFile",
+                f"RM_OUTPUT_DIR={tmp_path / 'from-file'}",
+                "XAI_API_KEY=secret-khong-doc",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    info = resolve_layout()
+    assert info["cache"] == str(mount / "TuFile" / "cache")
+    assert info["output"] == str(chosen)
+    assert os.environ.get("XAI_API_KEY") != "secret-khong-doc"
+    moved = set_root(str(tmp_path / "Khac"))
+    assert moved["cache"] == str(tmp_path / "Khac" / "cache")
+    assert moved["output"] == str(tmp_path / "Khac" / "output")
+
+
+def test_notebook_mounts_drive_like_the_audio_tool():
+    import ast
+    import json
+
+    path = os.path.join(os.path.dirname(__file__), "..", "notebooks", "Review_Manhwa.ipynb")
+    notebook = json.loads(open(path, encoding="utf-8").read())
+    text = "\n".join("".join(cell["source"]) for cell in notebook["cells"])
+    for cell in notebook["cells"]:
+        if cell["cell_type"] == "code":
+            ast.parse("".join(cell["source"]))
+    assert 'drive.mount("/content/drive")' in text
+    assert "DRIVE_DIR" in text
     assert "ReviewManhwa" in text
-    assert "RM_DRIVE_ROOT" in text
+    assert "setup_colab" in text
+    assert "extraheader" in text
+    assert "MODEL_ON_DRIVE" in text
+    assert "hf-cache" in text
+    assert 'f"https://github.com/{GITHUB_REPO}.git"' in text
+    assert "https://x-access-token:" not in text

@@ -907,7 +907,7 @@ def build_demo():
                     label="Thư mục gốc",
                     value=_root_value(info),
                     placeholder="Để trống để tự chọn. Ví dụ: /content/drive/MyDrive/ReviewManhwa",
-                    info="Đường dẫn tuyệt đối, hoặc tên thư mục trong My Drive. Trên Colab mặc định là ReviewManhwa.",
+                    info="Đường dẫn tuyệt đối, hoặc tên thư mục trong My Drive. Trên Colab, ô DRIVE_DIR mặc định là ReviewManhwa.",
                 )
                 apply_root = gr.Button("Dùng thư mục này", size="md")
 

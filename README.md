@@ -6,20 +6,33 @@ Công cụ dựng video review manhwa, chạy trên Google Colab và thao tác b
 
 Chỉ đưa file truyện bạn có quyền sử dụng. Tool không tải chương từ website.
 
+## Kết nối Google Drive
+
+Cùng cách với [Audio Full Truyện](https://github.com/hiepit127/generate-ytb-audio) (`colab/setup_colab.py` của repo đó):
+
+1. **Gắn ổ.** Trên Colab, `google.colab.drive.mount("/content/drive")` hỏi quyền tài khoản Google. Drive thành thư mục `/content/drive/MyDrive`. Tool tạo, đọc và ghi file bằng đường dẫn thường. Drive tự đồng bộ. Không gọi API Google Drive, không có service account hay file credential trong repo.
+2. **Thư mục.** Ô `DRIVE_DIR` trong notebook là gốc, mặc định `/content/drive/MyDrive/ReviewManhwa`. `prepare()` tạo thư mục rồi gán biến môi trường. App chỉ đọc các biến này:
+
+   | Thư mục | Biến | Nội dung |
+   |---|---|---|
+   | `cache/jobs` | `RM_JOBS_DIR` | Panel, chữ OCR, audio, việc đang làm |
+   | `cache/voices` | `RM_VOICES_DIR` | Giọng đã clone và đoạn mẫu |
+   | `output` | `RM_OUTPUT_DIR` | Video mp4, phụ đề srt, wav đọc thử |
+   | `hf-cache` | `HF_HOME` | Trọng số VieNeu |
+
+   Drive không dùng được symlink của Hugging Face, nên tool đặt `HF_HUB_DISABLE_SYMLINKS=1` và `HF_HUB_DISABLE_XET=1`. Bỏ chọn `MODEL_ON_DRIVE` nếu Drive gần đầy: model nằm ở `/content/hf-cache` của phiên đó.
+3. **Secret.** Repo private thì Colab Secrets có `GITHUB_TOKEN` (quyền đọc nội dung). Token chỉ đi trong header của lệnh git, không ghi vào `.git/config`, không in ra notebook. API key viết lời nhập trong giao diện và chỉ nằm trong RAM của phiên, không ghi vào Drive hay `manifest.json`.
+4. **Khi nào lưu trên máy.** Phiên không gắn được Drive, hoặc thư mục đã chọn không ghi được, thì dữ liệu vào `cache/` và `output/` cạnh mã nguồn. Cùng file và cùng cách tách thì lần sau dùng lại cache, khỏi OCR lại.
+
+Đổi gốc bằng ô `DRIVE_DIR`, bằng `RM_DRIVE_ROOT` (đường dẫn tuyệt đối, hoặc tên thư mục trong My Drive), hoặc trong accordion **Đổi thư mục gốc**.
+
 ## Chạy trên Colab
 
 1. Mở notebook bằng nút phía trên.
-2. Nếu repo private: Colab → **Secrets**, thêm `GITHUB_TOKEN` (quyền đọc nội dung repo) và bật **Notebook access**.
-3. `Runtime` → `Change runtime type` → **T4 GPU**.
-4. Chạy lần lượt các ô. Ô mở giao diện sẽ hỏi quyền Google Drive.
-5. Mở link Gradio (khung trong notebook hoặc link `gradio.live`).
-
-Drive gắn vào `My Drive/ReviewManhwa/`, cùng kiểu với tool Audio Full Truyện (`AudioFullTruyen/data`):
-
-- `cache/` — panel, chữ OCR, audio, giọng đã lưu, việc đang làm
-- `output/` — video mp4 và phụ đề srt
-
-Đổi thư mục bằng biến `RM_DRIVE_ROOT` (đường dẫn tuyệt đối, hoặc tên thư mục trong My Drive) trước khi mở giao diện, hoặc trong accordion **Đổi thư mục gốc**. Không gắn được Drive, hoặc thư mục không ghi được, thì tool lưu vào `cache/` và `output/` cạnh mã nguồn. Cùng file và cùng cách tách thì lần sau dùng lại cache, khỏi OCR lại.
+2. `Runtime` → `Change runtime type` → **T4 GPU**.
+3. Repo private: Colab → **Secrets**, thêm `GITHUB_TOKEN` và bật **Notebook access**.
+4. **Runtime → Run all.** Ô 2 gắn Drive. Ô 4 tạo thư mục và cài thư viện. Ô 5 mở giao diện.
+5. Giao diện hiện trong khung notebook và qua link `gradio.live`. Đó là đường mở từ máy khác.
 
 Trong giao diện, thanh trên cùng hiện đang lưu ở đâu. Làm lần lượt bốn bước:
 
@@ -52,7 +65,22 @@ pip install -r requirements.txt
 python app.py
 ```
 
-Mở `http://127.0.0.1:7860`. Máy không có NVIDIA thì VieNeu chạy CPU và chậm hơn. Không gắn Drive thì cache nằm ở `cache/`, video ở `output/`. `python app.py --doctor` in thư viện còn thiếu và thư mục đang lưu. Cổng còn bị giữ thì chạy `python scripts/close_port.py` hoặc `scripts/close_port.sh`.
+Mở `http://127.0.0.1:7860`. Máy không có NVIDIA thì VieNeu chạy CPU và chậm hơn. Cache nằm ở `cache/`, video ở `output/`, trừ khi trỏ sang chỗ khác.
+
+Đường dẫn có thể ghi trong `.env` cạnh mã nguồn (file này không commit, chỉ nhận biến thư mục, không đọc API key):
+
+```
+RM_DRIVE_ROOT=/đường/dẫn/ReviewManhwa
+```
+
+Tạo sẵn cây thư mục, hoặc xem các bước mà không ghi file:
+
+```bash
+python colab/setup_colab.py prepare --base /đường/dẫn/ReviewManhwa
+python colab/setup_colab.py all --dry-run --base /tmp/review-manhwa
+```
+
+`prepare` tạo thư mục trong tiến trình của chính lệnh đó. `python app.py` lần sau đọc `RM_DRIVE_ROOT` từ `.env` hoặc từ biến đã export. `python app.py --doctor` in thư viện còn thiếu và thư mục đang lưu. Cổng còn bị giữ thì chạy `python scripts/close_port.py` hoặc `scripts/close_port.sh`.
 
 ```bash
 pytest
