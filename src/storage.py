@@ -31,7 +31,7 @@ DRIVE_MOUNTS = (
 DEFAULT_NAME = "ReviewManhwa"
 HF_DIR_NAME = "hf-cache"
 _DOTENV_LOADED = False
-# Chỉ đường dẫn. API key nhập trong giao diện, không đọc từ file.
+# Chỉ đường dẫn. API key không nằm ở đây; src/keys.py đọc Colab Secrets, môi trường và .env.
 _DOTENV_KEYS = {
     "RM_DRIVE_ROOT",
     "RM_CACHE_DIR",

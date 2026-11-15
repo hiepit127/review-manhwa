@@ -9,6 +9,8 @@ Drive tự đồng bộ. Không gọi API Google Drive, không đọc credential
     python colab/setup_colab.py all --dry-run --base /tmp/review-manhwa
 
 Secret không in ra. Token GitHub chỉ dùng trong notebook, dưới dạng header.
+API key viết lời đọc từ Colab Secrets (XAI_API_KEY, OPENAI_API_KEY) hoặc từ
+biến môi trường / .env, rồi gán vào os.environ. Giá trị không in ra.
 """
 
 from __future__ import annotations
@@ -180,6 +182,9 @@ def prepare(base=DEFAULT_BASE, hf_on_drive=True, dry_run=None) -> dict:
     else:
         where = "thư mục đã chọn"
     print(f"✅ Dữ liệu ({where}): {used}")
+    from src.keys import summary_line
+
+    print(summary_line())
     return {
         "base": str(used),
         "on_drive": on_drive,

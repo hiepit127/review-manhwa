@@ -48,6 +48,12 @@ def doctor() -> str:
         lines.extend(summary_lines().splitlines())
     except Exception as error:
         lines.append(f"storage: lỗi ({error.__class__.__name__})")
+    try:
+        from src.keys import summary_line
+
+        lines.append(summary_line())
+    except Exception:
+        lines.append("API key: không kiểm tra được")
     return "\n".join(lines)
 
 
@@ -74,7 +80,10 @@ def launch(share=None, port: int | None = 7860):
     from src.storage import allowed_paths, prepare_runtime, summary_lines
 
     prepare_runtime()
+    from src.keys import summary_line
+
     print(summary_lines())
+    print(summary_line())
     os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
     os.chdir(ROOT)
     if share is None:

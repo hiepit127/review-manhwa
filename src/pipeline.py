@@ -190,7 +190,7 @@ def write_script(
             progress=progress,
         )
     except Exception as error:
-        raise RuntimeError(public_error(error, api_key or "")) from error
+        raise RuntimeError(public_error(error, api_key or "")) from None
     finally:
         for scene in job["scenes"]:
             scene.pop("abs_images", None)

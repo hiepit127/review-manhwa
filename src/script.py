@@ -7,6 +7,7 @@ import io
 import os
 import time
 
+from src.keys import missing_message
 from src.paths import ROOT
 from src.textutil import clean_spoken, narrations_from_payload, parse_json_object
 
@@ -151,8 +152,8 @@ def generate_narrations(
     log,
     progress,
 ) -> list[str]:
-    if not api_key.strip():
-        raise RuntimeError("Điền API key trước khi viết kịch bản.")
+    if not (api_key or "").strip():
+        raise RuntimeError(missing_message(provider))
     if not model.strip():
         raise RuntimeError("Điền tên model.")
     if provider == "xAI":
