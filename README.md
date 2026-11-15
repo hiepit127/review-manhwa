@@ -43,7 +43,7 @@ pip install -r requirements.txt
 python app.py
 ```
 
-Mở `http://127.0.0.1:7860`. Máy không có NVIDIA thì VieNeu chạy CPU và chậm hơn. `python app.py --doctor` in những thư viện còn thiếu.
+Mở `http://127.0.0.1:7860`. Máy không có NVIDIA thì VieNeu chạy CPU và chậm hơn. `python app.py --doctor` in những thư viện còn thiếu. Cổng còn bị giữ thì chạy `python scripts/close_port.py` hoặc `scripts/close_port.sh`.
 
 ```bash
 pytest

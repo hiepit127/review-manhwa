@@ -74,12 +74,10 @@ def launch(share=None, port: int | None = 7860):
         share = _in_colab()
     import gradio as gr
 
+    from src.ports import close_ports
     from src.ui import CSS, build_demo
 
-    try:
-        gr.close_all()
-    except Exception:
-        pass
+    close_ports(port or 7860)
     demo = build_demo()
     kwargs = {
         "server_name": "0.0.0.0",
