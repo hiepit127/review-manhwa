@@ -190,7 +190,43 @@ footer {display: none !important;}
   #brand h1 {font-size: 1.3rem;}
   #brand .brand {align-items: flex-start;}
   .gradio-container {padding-left: 8px !important; padding-right: 8px !important;}
+  #sample-row {flex-direction: column !important;}
+  #clone-layout {flex-direction: column !important;}
 }
+#sample-row {display: grid !important; grid-template-columns: minmax(0, 1fr) 52px minmax(0, 1fr) !important; gap: 12px !important; align-items: stretch !important;}
+#sample-row > .dash-card {min-width: 0 !important;}
+#sample-or {display: flex; align-items: center; justify-content: center; color: #a39a90; font-size: 0.95rem; height: 100%;}
+.dash-card .upload-container, .dash-card .audio-container, .dash-card .wrap {background: #141210 !important; color: #f4efe8 !important; border-color: #3f3a36 !important;}
+.dash-card span, .dash-card p {color: #f4efe8;}
+#clone-screen .block, #clone-side .block {background: transparent !important; border: none !important; box-shadow: none !important;}
+#clone-screen .form, #clone-side .form {background: #221f1c !important; border: 1px solid #3f3a36 !important; border-radius: 12px !important;}
+#clone-screen label span, #clone-side label span {color: #d9cfc3 !important;}
+.clone-link, .clone-link button {background: transparent !important; border: none !important; box-shadow: none !important; color: #176b45 !important; min-height: 32px !important; height: auto !important; width: fit-content !important; padding: 2px 0 !important; font-weight: 650 !important;}
+#clone-screen {background: #161311; border: 1px solid #2c2824; border-radius: 20px; padding: 18px 18px 8px; margin-top: 4px;}
+#clone-screen h2 {margin: 0 0 4px; color: #f4efe8; font-size: 1.35rem; letter-spacing: -0.02em;}
+#clone-screen .lead {margin: 0 0 16px; color: #a39a90; font-size: 0.92rem; line-height: 1.45;}
+#clone-screen .section-title {margin: 0 0 10px; color: #f4efe8; font-size: 1.05rem; font-weight: 650;}
+#sample-row {align-items: stretch !important; gap: 12px !important;}
+.dash-card {border: 1.5px dashed #5c564e !important; border-radius: 16px !important; background: #1c1916 !important; padding: 14px 14px 6px !important; min-height: 210px;}
+.dash-card h3 {margin: 0; color: #f4efe8; font-size: 1rem; font-weight: 650;}
+.dash-card p {margin: 4px 0 10px; color: #a39a90; font-size: 0.84rem; line-height: 1.4;}
+@media (max-width: 860px) {
+  #sample-row {grid-template-columns: 1fr !important;}
+  #sample-or {min-height: 28px;}
+}
+.tips {background: #221e1a; border: 1px solid #3a342e; border-left: 3px solid #1f8a58; border-radius: 12px; padding: 12px 14px; margin: 4px 0 14px;}
+.tips strong {display: block; color: #f4efe8; margin-bottom: 6px;}
+.tips li {color: #c9c0b6; font-size: 0.88rem; line-height: 1.45; margin: 2px 0 2px 1.1em;}
+#clone-screen label, #clone-screen .label-wrap span {color: #e7e0d6 !important;}
+#clone-screen input, #clone-screen textarea, #clone-screen select {background: #221f1c !important; color: #f4efe8 !important; border-color: #3f3a36 !important;}
+#clone-screen .count {display: block; text-align: right; color: #a39a90; font-size: 0.8rem; margin: -6px 2px 8px;}
+#clone-screen .count.over {color: #e7b4b4;}
+#create-row {align-items: center !important; margin-top: 4px;}
+#create-row button {margin-left: auto;}
+#clone-side {background: #1c1916; border: 1px solid #2c2824; border-radius: 16px; padding: 12px 12px 4px;}
+#clone-side h3 {margin: 0 0 8px; color: #f4efe8; font-size: 1rem;}
+.clone-link button {background: transparent !important; border: none !important; color: #3dbe86 !important; box-shadow: none !important; padding-left: 0 !important; justify-content: flex-start !important;}
+#clone-screen .audio-container, #clone-screen .upload-container {background: transparent !important; border-color: #3f3a36 !important;}
 """
 
 
@@ -665,64 +701,89 @@ def _flow_voice(prefer: str | None = None):
 
 
 def _voice_screen(selected: str | None = None):
-    """Danh sách giọng clone, file mẫu, và hai dropdown của bước Giọng / Video."""
-    from src.voices import find_saved, saved_names
+    """Danh sách giọng đã lưu, và các dropdown chọn giọng ở bước Giọng, Video, Đọc."""
+    from src.voices import find_saved, saved_names, voice_meta
 
     names = saved_names()
     if selected not in names:
         selected = names[0] if names else None
     item = find_saved(selected) if selected else None
     preview = item["path"] if item and os.path.isfile(item["path"]) else None
-    transcript = (item or {}).get("transcript") or ""
     return (
         _saved_update(selected),
         preview,
-        transcript,
+        voice_meta(item),
         selected or "",
-        _flow_voice(),
-        _flow_voice(),
+        _flow_voice(selected),
+        _flow_voice(selected),
         _flow_voice(selected),
     )
 
 
+def _count_html(text: str) -> str:
+    from src.voices import PREVIEW_LIMIT
+
+    count = len(text or "")
+    kind = "over" if count > PREVIEW_LIMIT else ""
+    return f'<span class="count {kind}">{count}/{PREVIEW_LIMIT}</span>'
+
+
+def _sample_from(upload, recording) -> str | None:
+    recorded = file_path(recording)
+    if recorded and os.path.isfile(recorded):
+        return recorded
+    uploaded = file_path(upload)
+    if uploaded and os.path.isfile(uploaded):
+        return uploaded
+    return None
+
+
 def on_pick_saved(name):
-    from src.voices import find_saved
+    from src.voices import find_saved, voice_meta
 
     item = find_saved(name)
     if item is None:
         return None, "", ""
     preview = item["path"] if os.path.isfile(item["path"]) else None
-    return preview, item.get("transcript") or "", item["name"]
+    return preview, voice_meta(item), item["name"]
 
 
-def on_clone_voice(name, audio, transcript):
+def on_create_voice(name, upload, recording, language, category, preview_text, consent):
     log = StepLog()
-    blank = (gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update())
+    blank = (gr.update(),) * 7
     try:
-        from src.tts import save_cloned_voice
-        from src.voices import find_saved
+        from src.tts import create_cloned_voice
 
-        saved = save_cloned_voice(name, file_path(audio), transcript or "", log)
-        item = find_saved(saved)
-        preview = item["path"] if item else None
-        spoken = (item or {}).get("transcript") or ""
+        made = create_cloned_voice(
+            name,
+            _sample_from(upload, recording),
+            preview_text,
+            bool(consent),
+            language or "Việt Nam",
+            category or "",
+            log,
+        )
+        saved = made["name"]
+        heard = made["preview"] or None
+        if made["warning"]:
+            note = f"Đã lưu giọng «{saved}» vào thư mục giọng. Chưa nghe thử được: {made['warning']}"
+            kind = "wait"
+        else:
+            note = f"Đã tạo giọng «{saved}». Nghe thử bên dưới. Giọng này chọn được ở bước Giọng và màn Đọc."
+            kind = "ok"
         return (
-            _saved_update(saved),
-            preview,
-            spoken,
-            saved,
-            _flow_voice(saved),
-            _flow_voice(saved),
-            _flow_voice(saved),
+            *_voice_screen(saved),
+            heard,
+            None,
             None,
             "",
-            "",
-            _status(f"Đã lưu giọng «{saved}». Giọng này có trong bước Giọng của video.", "ok"),
+            False,
+            _status(note, kind),
             log.text(),
         )
     except Exception as error:
         message = _fail(log, error)
-        return (*blank, gr.update(), gr.update(), gr.update(), _status(message, "err"), log.text())
+        return (*blank, gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), _status(message, "err"), log.text())
 
 
 def on_rename_voice(selected, new_name):
@@ -812,7 +873,22 @@ def on_hear(selected, text, job_id, progress=gr.Progress()):
     yield path, _status("Nghe thử xong. Nếu giọng ổn, sang bước Video.", "ok"), _steps(_safe_job(job_id), "video"), log.text()
 
 
-def on_preview(job_id, table, voice, ref_audio, progress=gr.Progress()):
+def on_quick_hear(selected, progress=gr.Progress()):
+    log = StepLog()
+    yield gr.update(), _status("Đang nghe thử giọng đã chọn…", "wait"), log.text()
+    try:
+        from src.tts import speak_line
+
+        progress(0.2, desc="Nghe thử giọng")
+        path = speak_line("Xin chào. Đây là giọng đã lưu.", selected, None, log)
+    except Exception as error:
+        message = _fail(log, error)
+        yield gr.update(), _status(message, "err"), log.text()
+        return
+    yield path, _status("Nghe thử xong.", "ok"), log.text()
+
+
+def on_preview(job_id, table, voice, progress=gr.Progress()):
     log = StepLog()
     if not job_id:
         log("Hãy tách panel và viết lời trước.")
@@ -821,7 +897,7 @@ def on_preview(job_id, table, voice, ref_audio, progress=gr.Progress()):
     yield gr.update(), _status("Đang đọc câu đầu của kịch bản…", "wait"), _steps(_safe_job(job_id), "video"), log.text()
     try:
         progress(0.1, desc="Đọc thử")
-        path = preview_line(job_id, table, voice, file_path(ref_audio), log)
+        path = preview_line(job_id, table, voice, None, log)
     except Exception as error:
         message = _fail(log, error)
         yield gr.update(), _status(message, "err"), _steps(_safe_job(job_id), "video"), log.text()
@@ -833,7 +909,6 @@ def on_render(
     job_id,
     table,
     voice,
-    ref_audio,
     video_format,
     resolution,
     slideshow,
@@ -861,7 +936,7 @@ def on_render(
             job_id,
             table,
             voice=voice,
-            ref_audio=file_path(ref_audio),
+            ref_audio=None,
             video_format=video_format,
             resolution=resolution,
             slideshow=slideshow,
@@ -907,12 +982,12 @@ def build_demo():
                     label="Thư mục gốc",
                     value=_root_value(info),
                     placeholder="Để trống để tự chọn. Ví dụ: /content/drive/MyDrive/ReviewManhwa",
-                    info="Đường dẫn tuyệt đối, hoặc tên thư mục trong My Drive. Trên Colab mặc định là ReviewManhwa.",
+                    info="Đường dẫn tuyệt đối, hoặc tên thư mục trong My Drive. Trên Colab, ô DRIVE_DIR mặc định là ReviewManhwa.",
                 )
                 apply_root = gr.Button("Dùng thư mục này", size="md")
 
         job_state = gr.State("")
-        with gr.Tabs(elem_id="flow"):
+        with gr.Tabs(elem_id="flow") as flow_tabs:
             with gr.Tab("1. Nguồn"):
                 gr.Markdown("Đưa trang vào, rồi bấm **Tách panel**. Ảnh, PDF, ZIP hoặc dán từng trang đều được.", elem_classes="hint")
                 with gr.Group(elem_classes="card"):
@@ -1037,13 +1112,15 @@ def build_demo():
 
             with gr.Tab("3. Giọng"):
                 gr.Markdown(
-                    "Chọn giọng cho video. Giọng đã clone ở tab **Giọng TTS** hiện trong danh sách này.",
+                    "Chọn một giọng đã có. Muốn giọng mới, mở màn **Tạo giọng**.",
                     elem_classes="hint",
                 )
                 with gr.Group(elem_classes="card"):
                     with gr.Row():
-                        voice_lab = gr.Dropdown(choices=voice_choices(), value="Hải Đăng", label="Giọng cho video")
-                        refresh_lab = gr.Button("Tải danh sách giọng", size="md")
+                        voice_lab = gr.Dropdown(choices=voice_choices(), value="Hải Đăng", label="Giọng cho video", scale=4)
+                        refresh_lab = gr.Button("Tải danh sách giọng", size="md", scale=0, min_width=180)
+                    with gr.Row():
+                        to_clone_voice = gr.Button("Tạo giọng mới", elem_classes=["clone-link"], scale=0, min_width=140)
                     trial_text = gr.Textbox(
                         label="Câu nghe thử",
                         value="Xin chào. Đây là giọng sẽ đọc phần review.",
@@ -1056,12 +1133,10 @@ def build_demo():
                 gr.Markdown("Giọng đang chọn sẽ đọc cả kịch bản. Nghe một câu trước, rồi xuất video.", elem_classes="hint")
                 with gr.Group(elem_classes="card"):
                     with gr.Row():
-                        voice = gr.Dropdown(choices=voice_choices(), value="Hải Đăng", label="Giọng VieNeu-TTS v3 Turbo")
-                        refresh = gr.Button("Tải danh sách giọng", size="md")
-                    ref_audio = gr.Audio(
-                        label="Hoặc file giọng mẫu 3–8 giây, nếu chưa lưu vào danh sách",
-                        type="filepath",
-                    )
+                        voice = gr.Dropdown(choices=voice_choices(), value="Hải Đăng", label="Giọng đã lưu", scale=4)
+                        refresh = gr.Button("Tải danh sách giọng", size="md", scale=0, min_width=180)
+                    with gr.Row():
+                        to_clone_video = gr.Button("Tạo giọng mới", elem_classes=["clone-link"], scale=0, min_width=140)
                     preview = gr.Button("Nghe thử câu kịch bản", size="md")
                     preview_audio = gr.Audio(label="Nghe thử câu kịch bản", type="filepath")
                 with gr.Group(elem_classes="card"):
@@ -1086,46 +1161,17 @@ def build_demo():
                     srt_file = gr.File(label="Phụ đề SRT")
                     result_box = gr.Textbox(label="File đã lưu", lines=2, interactive=False, buttons=["copy"])
 
-            with gr.Tab("Giọng TTS"):
+            with gr.Tab("Đọc"):
                 gr.Markdown(
-                    "Màn này tách khỏi bốn bước làm video. VieNeu v3 Turbo clone từ một đoạn nói 3–8 giây, không cần lời của đoạn đó.",
+                    "Chọn giọng đã có, nghe nhanh, rồi dán chữ để đọc. Tạo giọng mới ở màn **Tạo giọng**.",
                     elem_classes="hint",
                 )
                 with gr.Group(elem_classes="card"):
-                    gr.Markdown("**Giọng đã lưu**")
-                    gr.Markdown(
-                        "File mẫu nằm trong thư mục giọng trên Drive. Nghe lại, đổi tên hoặc xóa. Giọng này chọn được ở bước Giọng.",
-                        elem_classes="hint",
-                    )
-                    tts_saved = gr.Dropdown(label="Giọng đã clone", choices=saved_choice_pairs(), value=None)
-                    saved_preview = gr.Audio(label="Đoạn mẫu của giọng đang chọn", type="filepath")
-                    saved_transcript = gr.Textbox(label="Lời đã ghi cùng đoạn mẫu", lines=2, interactive=False)
-                    rename_box = gr.Textbox(label="Tên mới", placeholder="Đặt tên khác cho giọng đang chọn")
-                    with gr.Row():
-                        rename_voice = gr.Button("Đổi tên", size="md")
-                        delete_saved = gr.Button("Xóa giọng này", size="md")
-                with gr.Group(elem_classes="card"):
-                    gr.Markdown("**Tạo giọng mới**")
-                    gr.Markdown(
-                        "Tải lên hoặc bấm micro để thu 3–8 giây, một người nói, ít tiếng ồn. Ô lời chỉ để ghi nhớ; VieNeu v3 Turbo không bắt buộc.",
-                        elem_classes="hint",
-                    )
-                    clone_audio = gr.Audio(
-                        label="Đoạn giọng mẫu",
-                        sources=["upload", "microphone"],
-                        type="filepath",
-                    )
-                    ref_transcript = gr.Textbox(
-                        label="Lời trong đoạn mẫu (không bắt buộc)",
-                        lines=2,
-                        placeholder="Gõ đúng câu trong đoạn mẫu nếu bạn muốn lưu lại.",
-                    )
-                    clone_name = gr.Textbox(label="Tên giọng", placeholder="Ví dụ: Giọng review")
-                    save_clone = gr.Button("Lưu giọng này", variant="primary")
-                with gr.Group(elem_classes="card"):
-                    gr.Markdown("**Đọc một đoạn**")
-                    gr.Markdown("Chọn giọng đã lưu hoặc giọng có sẵn, dán chữ, rồi nghe và tải file. File wav được chép vào thư mục output.", elem_classes="hint")
                     speak_voice = gr.Dropdown(label="Giọng đọc", choices=voice_choices(), value="Hải Đăng")
+                    with gr.Row():
+                        quick_hear = gr.Button("Nghe giọng này", size="md", scale=0, min_width=160)
+                        to_clone_read = gr.Button("Tạo giọng mới", elem_classes=["clone-link"], scale=0, min_width=140)
+                    quick_audio = gr.Audio(label="Nghe thử giọng", type="filepath")
                     speak_text = gr.Textbox(
                         label="Chữ cần đọc",
                         lines=5,
@@ -1137,11 +1183,92 @@ def build_demo():
                         speech_file = gr.File(label="Tải file wav")
                         speech_path = gr.Textbox(label="Đã lưu tại", interactive=False, buttons=["copy"])
 
+            with gr.Tab("Tạo giọng", id="clone"):
+                from src.voices import CATEGORIES, LANGUAGES, PREVIEW_LIMIT, SAMPLE_HINT
+
+                preview_default = "Xin chào. Đây là giọng sẽ đọc phần review."
+                with gr.Row(elem_id="clone-layout"):
+                    with gr.Column(elem_id="clone-screen", scale=3):
+                        gr.HTML(
+                            "<h2>Tạo giọng</h2><p class='lead'>Chỉ màn này dùng để clone. Giọng lưu vào cache/voices, rồi chọn ở bước Giọng và màn Đọc.</p>"
+                            "<div class='section-title'>Thêm giọng mẫu của bạn</div>",
+                            padding=False,
+                        )
+                        with gr.Row(elem_id="sample-row"):
+                            with gr.Column(elem_classes="dash-card"):
+                                gr.HTML(
+                                    "<h3>Chọn hoặc kéo thả tệp vào đây</h3><p>WAV, MP3, M4A · tối đa 10 MB</p>",
+                                    padding=False,
+                                )
+                                sample_file = gr.Audio(
+                                    sources=["upload"],
+                                    type="filepath",
+                                    label="Tệp giọng mẫu",
+                                    show_label=False,
+                                )
+                            gr.HTML("<div id='sample-or'>hoặc</div>", padding=False)
+                            with gr.Column(elem_classes="dash-card"):
+                                gr.HTML(
+                                    f"<h3>Ghi âm trực tiếp</h3><p>Một người nói, {SAMPLE_HINT}. Bấm nút thu trên máy.</p>",
+                                    padding=False,
+                                )
+                                sample_mic = gr.Audio(
+                                    sources=["microphone"],
+                                    type="filepath",
+                                    label="Ghi âm",
+                                    show_label=False,
+                                )
+                        gr.HTML(
+                            "<div class='tips'><strong>Mẹo thu âm</strong><ul>"
+                            "<li>Thu trong phòng yên, đóng cửa.</li>"
+                            "<li>Tránh tiếng vọng, quạt, nhạc nền và nhiều người nói cùng lúc.</li>"
+                            f"<li>Nên dài khoảng {SAMPLE_HINT}, nói rõ, một mạch.</li>"
+                            "</ul></div>",
+                            padding=False,
+                        )
+                        clone_name = gr.Textbox(label="Tên giọng", placeholder="Ví dụ: Giọng review")
+                        with gr.Row():
+                            clone_language = gr.Dropdown(label="Ngôn ngữ", choices=list(LANGUAGES), value="Việt Nam")
+                            clone_category = gr.Dropdown(
+                                label="Lĩnh vực",
+                                choices=list(CATEGORIES),
+                                value=None,
+                                info="Không bắt buộc",
+                            )
+                        clone_preview = gr.Textbox(
+                            label="Văn bản nghe thử",
+                            lines=3,
+                            value=preview_default,
+                            max_length=PREVIEW_LIMIT,
+                        )
+                        preview_count = gr.HTML(_count_html(preview_default), padding=False)
+                        with gr.Row(elem_id="create-row"):
+                            clone_consent = gr.Checkbox(
+                                label="Tôi có quyền sử dụng giọng này và đồng ý tạo bản đọc từ giọng đó.",
+                                value=False,
+                            )
+                            create_voice = gr.Button("Tạo giọng", variant="primary", interactive=False, scale=0)
+                        made_audio = gr.Audio(label="Nghe thử giọng vừa tạo", type="filepath")
+                    with gr.Column(elem_id="clone-side", scale=2):
+                        gr.HTML("<h3>Giọng đã lưu</h3>", padding=False)
+                        gr.Markdown("Nghe mẫu, đổi tên hoặc xóa. File nằm trong thư mục giọng.", elem_classes="hint")
+                        tts_saved = gr.Dropdown(label="Giọng đã clone", choices=saved_choice_pairs(), value=None)
+                        saved_preview = gr.Audio(label="Đoạn mẫu", type="filepath")
+                        saved_meta = gr.Textbox(label="Ngôn ngữ và lĩnh vực", interactive=False)
+                        rename_box = gr.Textbox(label="Tên mới", placeholder="Đặt tên khác")
+                        with gr.Row():
+                            rename_voice = gr.Button("Đổi tên", size="md")
+                            delete_saved = gr.Button("Xóa giọng này", size="md")
+
         with gr.Accordion("Nhật ký", open=False):
             log_box = gr.Textbox(label="Nhật ký", lines=14, elem_id="log", show_label=False)
         gr.HTML(CREDITS, elem_id="credits", padding=False)
 
-        voice_screen = [tts_saved, saved_preview, saved_transcript, rename_box, voice_lab, voice, speak_voice]
+        voice_screen = [tts_saved, saved_preview, saved_meta, rename_box, voice_lab, voice, speak_voice]
+
+        def _open_clone():
+            return gr.Tabs(selected="clone")
+
         demo.load(
             on_boot,
             None,
@@ -1152,6 +1279,9 @@ def build_demo():
             [root_box],
             [storage_note, cache_box, voices_box, output_box, root_box, status, saved, *voice_screen],
         )
+        to_clone_voice.click(_open_clone, None, flow_tabs)
+        to_clone_video.click(_open_clone, None, flow_tabs)
+        to_clone_read.click(_open_clone, None, flow_tabs)
         reload_saved.click(on_reload_saved, None, [saved, status])
         open_saved.click(
             on_open,
@@ -1177,11 +1307,13 @@ def build_demo():
         refresh.click(on_voices, None, [voice, voice_lab, speak_voice, status, log_box])
         voice_lab.change(on_pick_voice, voice_lab, voice)
         hear.click(on_hear, [voice_lab, trial_text, job_state], [hear_audio, status, steps, log_box])
-        tts_saved.change(on_pick_saved, tts_saved, [saved_preview, saved_transcript, rename_box])
-        save_clone.click(
-            on_clone_voice,
-            [clone_name, clone_audio, ref_transcript],
-            [*voice_screen, clone_audio, clone_name, ref_transcript, status, log_box],
+        tts_saved.change(on_pick_saved, tts_saved, [saved_preview, saved_meta, rename_box])
+        clone_preview.change(_count_html, clone_preview, preview_count)
+        clone_consent.change(lambda ok: gr.Button(interactive=bool(ok)), clone_consent, create_voice)
+        create_voice.click(
+            on_create_voice,
+            [clone_name, sample_file, sample_mic, clone_language, clone_category, clone_preview, clone_consent],
+            [*voice_screen, made_audio, sample_file, sample_mic, clone_name, clone_consent, status, log_box],
         )
         rename_voice.click(
             on_rename_voice,
@@ -1193,15 +1325,16 @@ def build_demo():
             [tts_saved],
             [*voice_screen, status, log_box],
         )
+        quick_hear.click(on_quick_hear, [speak_voice], [quick_audio, status, log_box])
         generate.click(
             on_generate_speech,
             [speak_voice, speak_text],
             [speech_audio, speech_file, speech_path, status, log_box],
         )
-        preview.click(on_preview, [job_state, script_table, voice, ref_audio], [preview_audio, status, steps, log_box])
+        preview.click(on_preview, [job_state, script_table, voice], [preview_audio, status, steps, log_box])
         render.click(
             on_render,
-            [job_state, script_table, voice, ref_audio, video_format, resolution, slideshow, ken_burns, burn_subtitles, bgm, bgm_volume],
+            [job_state, script_table, voice, video_format, resolution, slideshow, ken_burns, burn_subtitles, bgm, bgm_volume],
             [video, srt_file, result_box, status, steps, log_box],
         )
     return demo

@@ -8,4 +8,6 @@ jobs/
 voices/
 cache/
 output/
+hf-cache/
+.env
 .DS_Store

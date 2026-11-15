@@ -1,9 +1,19 @@
 """Nơi lưu cache và video xuất ra.
 
-Trên Colab, Google Drive gắn ở /content/drive/MyDrive. Dữ liệu vào
-MyDrive/ReviewManhwa/cache và MyDrive/ReviewManhwa/output, cùng kiểu với
-AudioFullTruyen/data của tool audio. Không gắn được Drive, hoặc thư mục
-không ghi được, thì dùng cache/ và output/ cạnh mã nguồn.
+Cùng cách với tool Audio Full Truyện: Colab gắn Google Drive thành ổ
+(`/content/drive/MyDrive`), rồi `colab/setup_colab.py` tạo thư mục và gán
+biến môi trường. App chỉ đọc những biến đó và ghi file bằng đường dẫn thường.
+Drive tự đồng bộ. Không dùng API Google Drive và không chứa credential.
+
+Mặc định trên Drive là `MyDrive/ReviewManhwa/`:
+
+- `cache/jobs` — panel, chữ OCR, audio, việc đang làm
+- `cache/voices` — giọng đã clone
+- `output` — video, phụ đề, wav đọc thử
+- `hf-cache` — trọng số VieNeu
+
+Máy local đọc `.env` (không commit) nếu có. Chưa gắn Drive, hoặc thư mục
+không ghi được, thì dùng `cache/` và `output/` cạnh mã nguồn.
 """
 
 from __future__ import annotations
@@ -19,6 +29,19 @@ DRIVE_MOUNTS = (
     "/content/drive/My Drive",
 )
 DEFAULT_NAME = "ReviewManhwa"
+HF_DIR_NAME = "hf-cache"
+_DOTENV_LOADED = False
+# Chỉ đường dẫn. API key nhập trong giao diện, không đọc từ file.
+_DOTENV_KEYS = {
+    "RM_DRIVE_ROOT",
+    "RM_CACHE_DIR",
+    "RM_OUTPUT_DIR",
+    "RM_JOBS_DIR",
+    "RM_VOICES_DIR",
+    "HF_HOME",
+    "HF_HUB_DISABLE_SYMLINKS",
+    "HF_HUB_DISABLE_XET",
+}
 
 
 def find_drive_mount() -> str | None:
@@ -26,6 +49,43 @@ def find_drive_mount() -> str | None:
         if os.path.isdir(path):
             return path
     return None
+
+
+def folders(base: str) -> dict[str, str]:
+    """Thư mục cache, việc, giọng, output và model dưới một gốc."""
+    cache = os.path.join(base, "cache")
+    return {
+        "base": base,
+        "cache": cache,
+        "jobs": os.path.join(cache, "jobs"),
+        "voices": os.path.join(cache, "voices"),
+        "output": os.path.join(base, "output"),
+        "hf": os.path.join(base, HF_DIR_NAME),
+    }
+
+
+def _load_dotenv() -> None:
+    """Đọc `.env` một lần. Biến đã có trong môi trường được giữ nguyên."""
+    global _DOTENV_LOADED
+    if _DOTENV_LOADED:
+        return
+    _DOTENV_LOADED = True
+    path = os.path.join(ROOT, ".env")
+    if not os.path.isfile(path):
+        return
+    try:
+        lines = open(path, encoding="utf-8").read().splitlines()
+    except OSError:
+        return
+    for line in lines:
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        if key not in _DOTENV_KEYS:
+            continue
+        os.environ.setdefault(key, value.strip().strip('"').strip("'"))
 
 
 def _under(path: str, root: str) -> bool:
@@ -51,6 +111,17 @@ def _writable(path: str) -> bool:
         return False
 
 
+def _mounted_drive_path(path: str) -> str:
+    """Giữ đường dẫn trên Drive đã gắn. Đường dẫn /content/drive khi chưa gắn thì bỏ."""
+    path = (path or "").strip()
+    if not path or not _drive_path(path):
+        return path
+    mount = find_drive_mount()
+    if mount and _under(path, mount):
+        return path
+    return ""
+
+
 def _clean_request(raw: str) -> tuple[str, str]:
     requested = (raw or "").strip().rstrip("/\\")
     if not requested or os.path.isabs(requested):
@@ -63,6 +134,7 @@ def _clean_request(raw: str) -> tuple[str, str]:
 
 def resolve_layout() -> dict:
     """Quyết định thư mục gốc, cache và output. Không ghi secret."""
+    _load_dotenv()
     requested, request_note = _clean_request(os.environ.get("RM_DRIVE_ROOT") or "")
     mount = find_drive_mount()
     note = request_note
@@ -92,15 +164,12 @@ def resolve_layout() -> dict:
         note = note or "Chưa gắn Google Drive. Đang lưu trên máy này."
         base = ROOT
 
-    if on_drive or custom:
-        cache = os.path.join(base, "cache")
-        output = os.path.join(base, "output")
-    else:
-        cache = os.path.join(ROOT, "cache")
-        output = os.path.join(ROOT, "output")
+    picked = folders(base if (on_drive or custom) else ROOT)
+    cache = picked["cache"]
+    output = picked["output"]
 
-    cache_override = (os.environ.get("RM_CACHE_DIR") or "").strip()
-    output_override = (os.environ.get("RM_OUTPUT_DIR") or "").strip()
+    cache_override = _mounted_drive_path(os.environ.get("RM_CACHE_DIR") or "")
+    output_override = _mounted_drive_path(os.environ.get("RM_OUTPUT_DIR") or "")
     if cache_override:
         cache = cache_override
     if output_override:
@@ -111,8 +180,9 @@ def resolve_layout() -> dict:
         on_drive = False
         custom = False
         base = ROOT
-        cache = os.path.join(ROOT, "cache")
-        output = os.path.join(ROOT, "output")
+        local = folders(ROOT)
+        cache = local["cache"]
+        output = local["output"]
         if not (_writable(cache) and _writable(output)):
             raise RuntimeError("Không tạo được thư mục cache và output trên máy.")
 
@@ -129,35 +199,54 @@ def resolve_layout() -> dict:
 
 
 def jobs_dir() -> str:
-    override = (os.environ.get("RM_JOBS_DIR") or "").strip()
+    override = _mounted_drive_path(os.environ.get("RM_JOBS_DIR") or "")
     path = override or os.path.join(resolve_layout()["cache"], "jobs")
     os.makedirs(path, exist_ok=True)
     return path
 
 
 def voices_dir() -> str:
-    override = (os.environ.get("RM_VOICES_DIR") or "").strip()
+    override = _mounted_drive_path(os.environ.get("RM_VOICES_DIR") or "")
     path = override or os.path.join(resolve_layout()["cache"], "voices")
     os.makedirs(path, exist_ok=True)
     return path
 
 
 def output_dir() -> str:
-    path = resolve_layout()["output"]
+    path = _mounted_drive_path(resolve_layout()["output"]) or folders(ROOT)["output"]
     os.makedirs(path, exist_ok=True)
     return path
 
 
+def _on_colab() -> bool:
+    return "COLAB_RELEASE_TAG" in os.environ or "COLAB_GPU" in os.environ
+
+
 def prepare_runtime() -> dict:
-    """Tạo thư mục và, khi có Drive hoặc Colab, giữ model Hugging Face trong cache."""
+    """Tạo thư mục dữ liệu. Trên Drive hoặc Colab, giữ model trong hf-cache.
+
+    Drive FUSE không chạy symlink của Hugging Face, nên tắt symlink và Xet,
+    cùng cách với tool audio.
+    """
     info = resolve_layout()
     os.makedirs(jobs_dir(), exist_ok=True)
     os.makedirs(voices_dir(), exist_ok=True)
     os.makedirs(info["output"], exist_ok=True)
-    on_colab = "COLAB_RELEASE_TAG" in os.environ or "COLAB_GPU" in os.environ
+    on_colab = _on_colab()
     if info["on_drive"] or on_colab:
-        os.environ.setdefault("HF_HOME", os.path.join(info["cache"], "huggingface"))
         os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS", "1")
+        os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
+    if not os.environ.get("HF_HOME"):
+        if info["on_drive"]:
+            os.environ["HF_HOME"] = folders(info["base"])["hf"]
+        elif on_colab:
+            os.environ["HF_HOME"] = "/content/hf-cache" if os.path.isdir("/content") else folders(ROOT)["hf"]
+    hf = os.environ.get("HF_HOME") or ""
+    if hf and (info["on_drive"] or on_colab):
+        try:
+            os.makedirs(hf, exist_ok=True)
+        except OSError:
+            pass
     return describe()
 
 
@@ -166,6 +255,7 @@ def describe() -> dict:
     info["jobs"] = jobs_dir()
     info["voices"] = voices_dir()
     info["output"] = output_dir()
+    info["hf"] = os.environ.get("HF_HOME") or ""
     return info
 
 
@@ -183,20 +273,30 @@ def summary_lines() -> str:
         f"Giọng: {info['voices']}",
         f"Output: {info['output']}",
     ]
+    if info.get("hf"):
+        lines.append(f"Model: {info['hf']}")
     if info["note"]:
         lines.append(info["note"])
     return "\n".join(lines)
 
 
 def set_root(path: str) -> dict:
-    """Đổi thư mục gốc. Để trống thì tự chọn Drive hoặc máy local."""
+    """Đổi thư mục gốc. Để trống thì tự chọn Drive hoặc máy local.
+
+    Xóa các biến thư mục mà `prepare()` đã gán, để thư mục mới có hiệu lực
+    trong cùng phiên.
+    """
     cleaned = (path or "").strip()
+    previous = os.path.abspath(resolve_layout()["base"])
     if cleaned:
         os.environ["RM_DRIVE_ROOT"] = cleaned
     else:
         os.environ.pop("RM_DRIVE_ROOT", None)
-    os.environ.pop("RM_CACHE_DIR", None)
-    os.environ.pop("RM_OUTPUT_DIR", None)
+    for key in ("RM_CACHE_DIR", "RM_OUTPUT_DIR", "RM_JOBS_DIR", "RM_VOICES_DIR"):
+        os.environ.pop(key, None)
+    hf = os.environ.get("HF_HOME") or ""
+    if hf and _under(hf, previous):
+        os.environ.pop("HF_HOME", None)
     return prepare_runtime()
 
 

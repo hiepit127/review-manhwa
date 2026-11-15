@@ -242,6 +242,53 @@ def save_cloned_voice(name: str, ref_audio: str | None, transcript: str = "", lo
     return record["name"]
 
 
+def create_cloned_voice(
+    name: str,
+    ref_audio: str | None,
+    preview_text: str,
+    consent: bool,
+    language: str = "Việt Nam",
+    category: str = "",
+    log=None,
+) -> dict:
+    """Lưu giọng vào cache/voices, rồi đọc câu nghe thử nếu VieNeu mở được."""
+    from src.voices import prepare_clone, store_sample
+
+    form = prepare_clone(name, ref_audio, preview_text, consent, language, category)
+    if log:
+        log(f"Đang tạo giọng {form['name']}.")
+    record = store_sample(
+        form["name"],
+        form["src"],
+        language=form["language"],
+        category=form["category"],
+        preview_text=form["preview"],
+    )
+    preview_path = ""
+    warning = ""
+    try:
+        engine = get_engine(log)
+        register_saved(engine, log)
+        _enroll(engine, record["name"], record["path"], "")
+        _ENROLLED.add(record["name"])
+        preview_path = speech_output_path(record["name"])
+        synthesize_to_file(form["preview"], record["name"], preview_path, log)
+        if log:
+            log(f"Đã lưu giọng {record['name']} và đọc câu nghe thử.")
+    except Exception as error:
+        warning = str(error).strip() or error.__class__.__name__
+        if log:
+            log(f"Đã lưu giọng {record['name']}. Chưa nghe thử được: {warning}")
+    return {
+        "name": record["name"],
+        "sample": record["path"],
+        "preview": preview_path,
+        "warning": warning,
+        "language": record["language"],
+        "category": record["category"],
+    }
+
+
 def rename_cloned_voice(old: str, new: str, log=None) -> str:
     from src.voices import find_saved, rename_saved
 

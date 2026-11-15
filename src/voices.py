@@ -10,6 +10,12 @@ import wave
 
 from src.textutil import slugify
 
+MAX_SAMPLE_BYTES = 10 * 1024 * 1024
+PREVIEW_LIMIT = 180
+LANGUAGES = ("Việt Nam", "English", "한국어", "中文", "日本語", "Français")
+CATEGORIES = ("Truyện", "Review", "Podcast")
+SAMPLE_HINT = "3–8 giây"
+
 
 def voices_dir() -> str:
     from src.storage import voices_dir as resolved
@@ -42,6 +48,9 @@ def saved_voices() -> list[dict]:
                 "file": filename,
                 "path": os.path.join(voices_dir(), filename),
                 "transcript": str(item.get("transcript") or "").strip(),
+                "language": str(item.get("language") or "Việt Nam").strip() or "Việt Nam",
+                "category": str(item.get("category") or "").strip(),
+                "preview_text": str(item.get("preview_text") or "").strip(),
             }
         )
     return rows
@@ -75,7 +84,14 @@ def saved_choice_pairs() -> list[tuple[str, str]]:
 def _write_index(rows: list[dict]) -> None:
     payload = {
         "voices": [
-            {"name": item["name"], "file": item["file"], "transcript": item.get("transcript") or ""}
+            {
+                "name": item["name"],
+                "file": item["file"],
+                "transcript": item.get("transcript") or "",
+                "language": item.get("language") or "Việt Nam",
+                "category": item.get("category") or "",
+                "preview_text": item.get("preview_text") or "",
+            }
             for item in rows
         ]
     }
@@ -147,11 +163,60 @@ def check_name(name: str) -> str:
 def check_sample(name: str, src: str | None) -> str:
     cleaned = check_name(name)
     if not src or not os.path.isfile(src):
-        raise RuntimeError("Hãy chọn file giọng mẫu 3–8 giây.")
+        raise RuntimeError("Hãy tải file giọng mẫu hoặc ghi âm trực tiếp.")
+    size = os.path.getsize(src)
+    if size > MAX_SAMPLE_BYTES:
+        raise RuntimeError("File lớn hơn 10 MB. Hãy dùng đoạn khoảng 3–8 giây.")
+    if size < 64:
+        raise RuntimeError("File mẫu trống. Hãy chọn đoạn giọng khác.")
     return cleaned
 
 
-def store_sample(name: str, src: str, transcript: str = "") -> dict:
+def prepare_clone(
+    name: str,
+    src: str | None,
+    preview: str,
+    consent: bool,
+    language: str = "Việt Nam",
+    category: str = "",
+) -> dict:
+    """Kiểm tra form tạo giọng trước khi ghi file. Ô xác nhận là bắt buộc."""
+    if not consent:
+        raise RuntimeError("Hãy tick ô xác nhận trước khi tạo giọng.")
+    cleaned = check_sample(name, src)
+    text = (preview or "").strip()
+    if not text:
+        raise RuntimeError("Hãy nhập văn bản nghe thử.")
+    if len(text) > PREVIEW_LIMIT:
+        raise RuntimeError(f"Văn bản nghe thử tối đa {PREVIEW_LIMIT} ký tự.")
+    lang = language if language in LANGUAGES else "Việt Nam"
+    field = category if category in CATEGORIES else ""
+    return {
+        "name": cleaned,
+        "src": src,
+        "preview": text,
+        "language": lang,
+        "category": field,
+    }
+
+
+def voice_meta(item: dict | None) -> str:
+    if not item:
+        return ""
+    bits = [item.get("language") or "Việt Nam"]
+    if item.get("category"):
+        bits.append(item["category"])
+    return " · ".join(bits)
+
+
+def store_sample(
+    name: str,
+    src: str,
+    transcript: str = "",
+    language: str = "Việt Nam",
+    category: str = "",
+    preview_text: str = "",
+) -> dict:
     """Ghi file mẫu vào thư mục giọng. Chưa gọi model."""
     cleaned = check_sample(name, src)
     folder = voices_dir()
@@ -169,9 +234,29 @@ def store_sample(name: str, src: str, transcript: str = "") -> dict:
     os.replace(partial, dest)
     rows = [item for item in saved_voices() if item["name"].casefold() != cleaned.casefold()]
     spoken = (transcript or "").strip()
-    rows.append({"name": cleaned, "file": filename, "transcript": spoken})
+    lang = language if language in LANGUAGES else "Việt Nam"
+    field = category if category in CATEGORIES else ""
+    rows.append(
+        {
+            "name": cleaned,
+            "file": filename,
+            "transcript": spoken,
+            "language": lang,
+            "category": field,
+            "preview_text": (preview_text or "").strip(),
+        }
+    )
     _write_index(rows)
-    return {"name": cleaned, "file": filename, "path": dest, "seconds": seconds, "transcript": spoken}
+    return {
+        "name": cleaned,
+        "file": filename,
+        "path": dest,
+        "seconds": seconds,
+        "transcript": spoken,
+        "language": lang,
+        "category": field,
+        "preview_text": (preview_text or "").strip(),
+    }
 
 
 def rename_saved(old: str, new: str) -> str:
