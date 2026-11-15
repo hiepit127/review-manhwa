@@ -121,7 +121,22 @@ def _duration(path: str) -> float | None:
     return None
 
 
+def _ffmpeg() -> str | None:
+    found = shutil.which("ffmpeg")
+    if found:
+        return found
+    try:
+        import imageio_ffmpeg
+    except Exception:
+        return None
+    try:
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception:
+        return None
+
+
 def _to_wav(src: str, dest: str) -> None:
+    """Đưa WAV, MP3 hoặc M4A về file WAV. Đuôi file đích không quyết định định dạng."""
     if os.path.splitext(src)[1].lower() == ".wav":
         shutil.copyfile(src, dest)
         return
@@ -129,20 +144,20 @@ def _to_wav(src: str, dest: str) -> None:
         import soundfile as sf
 
         data, rate = sf.read(src)
-        sf.write(dest, data, rate)
+        sf.write(dest, data, rate, format="WAV")
         return
     except Exception:
         pass
-    ffmpeg = shutil.which("ffmpeg")
+    ffmpeg = _ffmpeg()
     if not ffmpeg:
-        raise RuntimeError("Không đọc được file mẫu. Hãy dùng file WAV.")
+        raise RuntimeError("Không đọc được file mẫu. Cần ffmpeg để đọc MP3 hoặc M4A.")
     result = subprocess.run(
-        [ffmpeg, "-y", "-i", src, dest],
+        [ffmpeg, "-y", "-i", src, "-f", "wav", dest],
         capture_output=True,
         text=True,
     )
-    if result.returncode != 0 or not os.path.isfile(dest):
-        raise RuntimeError("Không đọc được file mẫu. Hãy dùng file WAV.")
+    if result.returncode != 0 or not os.path.isfile(dest) or os.path.getsize(dest) < 64:
+        raise RuntimeError("Không đọc được file MP3 hoặc M4A. Hãy thử file WAV.")
 
 
 def check_name(name: str) -> str:
@@ -225,13 +240,18 @@ def store_sample(
     if filename in taken:
         filename = f"{slugify(cleaned) or 'giong'}-{len(taken) + 1}.wav"
     dest = os.path.join(folder, filename)
-    partial = dest + ".partial"
-    _to_wav(src, partial)
-    seconds = _duration(partial)
-    if seconds is not None and seconds < 1:
-        os.remove(partial)
-        raise RuntimeError("File mẫu quá ngắn. Hãy dùng đoạn khoảng 3–8 giây.")
-    os.replace(partial, dest)
+    # Đuôi phải là .wav. soundfile và ffmpeg không ghi được ra file .partial.
+    partial = dest + ".part.wav"
+    try:
+        _to_wav(src, partial)
+        seconds = _duration(partial)
+        if seconds is not None and seconds < 1:
+            raise RuntimeError("File mẫu quá ngắn. Hãy dùng đoạn khoảng 3–8 giây.")
+        os.replace(partial, dest)
+    except Exception:
+        if os.path.isfile(partial):
+            os.remove(partial)
+        raise
     rows = [item for item in saved_voices() if item["name"].casefold() != cleaned.casefold()]
     spoken = (transcript or "").strip()
     lang = language if language in LANGUAGES else "Việt Nam"
