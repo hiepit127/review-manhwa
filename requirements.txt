@@ -1,0 +1,2 @@
+# Cài trên máy local hoặc Colab. Trên Colab dùng requirements-colab.txt để giữ torch CUDA sẵn có.
+-r requirements-colab.txt
