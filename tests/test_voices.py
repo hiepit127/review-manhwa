@@ -50,6 +50,44 @@ def test_short_sample_is_rejected(tmp_path, monkeypatch):
     assert saved_names() == []
 
 
+def test_transcript_is_kept_and_voice_can_be_renamed(tmp_path, monkeypatch):
+    monkeypatch.setenv("RM_VOICES_DIR", str(tmp_path / "voices"))
+    src = _wav(str(tmp_path / "mau.wav"))
+    record = store_sample("Giọng review", src, transcript="Xin chào các bạn.")
+    assert record["transcript"] == "Xin chào các bạn."
+    from src.voices import find_saved, rename_saved
+
+    assert find_saved("Giọng review")["transcript"] == "Xin chào các bạn."
+    assert rename_saved("Giọng review", "Giọng kênh") == "Giọng kênh"
+    renamed = find_saved("Giọng kênh")
+    assert renamed["transcript"] == "Xin chào các bạn."
+    assert os.path.isfile(renamed["path"])
+    assert saved_names() == ["Giọng kênh"]
+    with pytest.raises(RuntimeError, match="giọng có sẵn"):
+        rename_saved("Giọng kênh", "Hải Đăng")
+
+
+def test_speech_file_lands_in_output(tmp_path, monkeypatch):
+    monkeypatch.setenv("RM_VOICES_DIR", str(tmp_path / "voices"))
+    monkeypatch.setenv("RM_OUTPUT_DIR", str(tmp_path / "out"))
+    monkeypatch.setattr("src.storage.find_drive_mount", lambda: None)
+    src = _wav(str(tmp_path / "mau.wav"), seconds=3)
+    store_sample("Giọng review", src)
+    monkeypatch.setattr("src.tts.open_voice", lambda *args, **kwargs: "Giọng review")
+
+    def fake_synth(text, voice, dest, log=None):
+        with open(dest, "wb") as handle:
+            handle.write(b"RIFFdemo")
+        return dest
+
+    monkeypatch.setattr("src.tts.synthesize_to_file", fake_synth)
+    from src.tts import generate_speech
+
+    path = generate_speech("Xin chào. Đây là đoạn đọc thử.", "Giọng review", log=lambda message: None)
+    assert os.path.dirname(path) == str(tmp_path / "out")
+    assert open(path, "rb").read() == b"RIFFdemo"
+
+
 def test_only_saved_voices_can_be_removed(tmp_path, monkeypatch):
     monkeypatch.setenv("RM_VOICES_DIR", str(tmp_path / "voices"))
     src = _wav(str(tmp_path / "mau.wav"))

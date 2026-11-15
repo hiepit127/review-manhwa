@@ -348,14 +348,17 @@ def _voice_update(labels: list[str], selected: str | None = None):
 
 def on_boot():
     info = describe()
+    screen = _voice_screen()
     return (
         _storage_note(info),
         info["jobs"],
+        info["voices"],
         info["output"],
         _root_value(info),
         _boot_status(info),
         _steps(None, "source"),
         _choices(),
+        *screen,
     )
 
 
@@ -377,7 +380,16 @@ def on_apply_root(path):
         status = _status(note, "wait")
     else:
         status = _status(f"Đang lưu vào {_where(info).lower()}.", "ok")
-    return _storage_note(info), info["jobs"], info["output"], _root_value(info), status, _choices()
+    return (
+        _storage_note(info),
+        info["jobs"],
+        info["voices"],
+        info["output"],
+        _root_value(info),
+        status,
+        _choices(),
+        *_voice_screen(),
+    )
 
 
 def on_reload_saved():
@@ -626,51 +638,173 @@ def on_voices():
         from src.tts import list_voices
 
         labels = list_voices(log)
-        update = _voice_update(labels)
-        return update, update, _status(f"Có {len(labels)} giọng.", "ok"), log.text()
-    except Exception as error:
-        message = _fail(log, error)
-        return gr.update(), gr.update(), _status(message, "err"), log.text()
-
-
-def on_save_voice(name, audio):
-    log = StepLog()
-    try:
-        from src.tts import list_voices, save_cloned_voice
-
-        saved = save_cloned_voice(name, file_path(audio), log)
-        update = _voice_update(list_voices(log), saved)
-        return update, update, gr.update(value=None), _status(f"Đã lưu giọng «{saved}».", "ok"), log.text()
+        return (
+            _voice_update(labels),
+            _voice_update(labels),
+            _voice_update(labels),
+            _status(f"Có {len(labels)} giọng.", "ok"),
+            log.text(),
+        )
     except Exception as error:
         message = _fail(log, error)
         return gr.update(), gr.update(), gr.update(), _status(message, "err"), log.text()
 
 
-def on_delete_voice(selected):
-    log = StepLog()
-    try:
-        from src.tts import delete_cloned_voice, voice_choices
+def _saved_update(selected: str | None = None):
+    from src.voices import saved_choice_pairs, saved_names
 
-        delete_cloned_voice(selected, log)
-        update = _voice_update(voice_choices())
-        return update, update, _status("Đã xóa giọng đã lưu.", "ok"), log.text()
+    names = saved_names()
+    value = selected if selected in names else (names[0] if names else None)
+    return gr.update(choices=saved_choice_pairs(), value=value)
+
+
+def _flow_voice(prefer: str | None = None):
+    from src.tts import voice_choices
+
+    return _voice_update(voice_choices(), prefer)
+
+
+def _voice_screen(selected: str | None = None):
+    """Danh sách giọng clone, file mẫu, và hai dropdown của bước Giọng / Video."""
+    from src.voices import find_saved, saved_names
+
+    names = saved_names()
+    if selected not in names:
+        selected = names[0] if names else None
+    item = find_saved(selected) if selected else None
+    preview = item["path"] if item and os.path.isfile(item["path"]) else None
+    transcript = (item or {}).get("transcript") or ""
+    return (
+        _saved_update(selected),
+        preview,
+        transcript,
+        selected or "",
+        _flow_voice(),
+        _flow_voice(),
+        _flow_voice(selected),
+    )
+
+
+def on_pick_saved(name):
+    from src.voices import find_saved
+
+    item = find_saved(name)
+    if item is None:
+        return None, "", ""
+    preview = item["path"] if os.path.isfile(item["path"]) else None
+    return preview, item.get("transcript") or "", item["name"]
+
+
+def on_clone_voice(name, audio, transcript):
+    log = StepLog()
+    blank = (gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update())
+    try:
+        from src.tts import save_cloned_voice
+        from src.voices import find_saved
+
+        saved = save_cloned_voice(name, file_path(audio), transcript or "", log)
+        item = find_saved(saved)
+        preview = item["path"] if item else None
+        spoken = (item or {}).get("transcript") or ""
+        return (
+            _saved_update(saved),
+            preview,
+            spoken,
+            saved,
+            _flow_voice(saved),
+            _flow_voice(saved),
+            _flow_voice(saved),
+            None,
+            "",
+            "",
+            _status(f"Đã lưu giọng «{saved}». Giọng này có trong bước Giọng của video.", "ok"),
+            log.text(),
+        )
     except Exception as error:
         message = _fail(log, error)
-        return gr.update(), gr.update(), _status(message, "err"), log.text()
+        return (*blank, gr.update(), gr.update(), gr.update(), _status(message, "err"), log.text())
+
+
+def on_rename_voice(selected, new_name):
+    log = StepLog()
+    try:
+        from src.tts import rename_cloned_voice
+
+        renamed = rename_cloned_voice(selected, new_name, log)
+        return (
+            _saved_update(renamed),
+            renamed,
+            _flow_voice(renamed),
+            _flow_voice(renamed),
+            _flow_voice(renamed),
+            _status(f"Đã đổi tên thành «{renamed}».", "ok"),
+            log.text(),
+        )
+    except Exception as error:
+        message = _fail(log, error)
+        return gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), _status(message, "err"), log.text()
+
+
+def on_delete_saved(selected):
+    log = StepLog()
+    try:
+        from src.tts import delete_cloned_voice
+
+        removed = delete_cloned_voice(selected, log)
+        screen = _voice_screen()
+        return (
+            *screen,
+            _status(f"Đã xóa giọng «{removed}».", "ok"),
+            log.text(),
+        )
+    except Exception as error:
+        message = _fail(log, error)
+        return (
+            gr.update(),
+            gr.update(),
+            gr.update(),
+            gr.update(),
+            gr.update(),
+            gr.update(),
+            gr.update(),
+            _status(message, "err"),
+            log.text(),
+        )
+
+
+def on_generate_speech(voice, text, progress=gr.Progress()):
+    log = StepLog()
+    yield gr.update(), gr.update(), gr.update(), _status("Đang đọc. Lần đầu VieNeu sẽ tải model.", "wait"), log.text()
+    try:
+        from src.tts import generate_speech
+
+        progress(0.2, desc="Đọc bằng giọng đã chọn")
+        path = generate_speech(text, voice, log)
+    except Exception as error:
+        message = _fail(log, error)
+        yield gr.update(), gr.update(), gr.update(), _status(message, "err"), log.text()
+        return
+    yield (
+        path,
+        path,
+        path,
+        _status(f"Đọc xong. File nằm tại {path}", "ok"),
+        log.text(),
+    )
 
 
 def on_pick_voice(selected):
     return gr.update(value=selected)
 
 
-def on_hear(selected, text, audio, job_id, progress=gr.Progress()):
+def on_hear(selected, text, job_id, progress=gr.Progress()):
     log = StepLog()
     yield gr.update(), _status("Đang đọc thử giọng…", "wait"), _steps(_safe_job(job_id), "voice"), log.text()
     try:
         from src.tts import speak_line
 
         progress(0.2, desc="Đọc thử giọng")
-        path = speak_line(text, selected, file_path(audio), log)
+        path = speak_line(text, selected, None, log)
     except Exception as error:
         message = _fail(log, error)
         yield gr.update(), _status(message, "err"), _steps(_safe_job(job_id), "voice"), log.text()
@@ -754,6 +888,9 @@ def on_render(
 
 
 def build_demo():
+    from src.tts import voice_choices
+    from src.voices import saved_choice_pairs
+
     info = describe()
     with gr.Blocks(title="Review Manhwa") as demo:
         gr.HTML(BRAND, elem_id="brand", padding=False)
@@ -763,6 +900,7 @@ def build_demo():
             storage_note = gr.HTML(_storage_note(info), padding=False)
             with gr.Row():
                 cache_box = gr.Textbox(label="Thư mục cache", value=info["jobs"], interactive=False, buttons=["copy"])
+                voices_box = gr.Textbox(label="Thư mục giọng", value=info["voices"], interactive=False, buttons=["copy"])
                 output_box = gr.Textbox(label="Thư mục output", value=info["output"], interactive=False, buttons=["copy"])
             with gr.Accordion("Đổi thư mục gốc", open=False):
                 root_box = gr.Textbox(
@@ -898,11 +1036,13 @@ def build_demo():
                 script_file = gr.File(label="Tải script.json")
 
             with gr.Tab("3. Giọng"):
-                gr.Markdown("Chọn giọng có sẵn, hoặc lưu giọng của bạn từ file mẫu 3–8 giây.", elem_classes="hint")
+                gr.Markdown(
+                    "Chọn giọng cho video. Giọng đã clone ở tab **Giọng TTS** hiện trong danh sách này.",
+                    elem_classes="hint",
+                )
                 with gr.Group(elem_classes="card"):
-                    gr.Markdown("**Giọng có sẵn**")
                     with gr.Row():
-                        voice_lab = gr.Dropdown(choices=FALLBACK_VOICES, value="Hải Đăng", label="Giọng")
+                        voice_lab = gr.Dropdown(choices=voice_choices(), value="Hải Đăng", label="Giọng cho video")
                         refresh_lab = gr.Button("Tải danh sách giọng", size="md")
                     trial_text = gr.Textbox(
                         label="Câu nghe thử",
@@ -911,20 +1051,12 @@ def build_demo():
                     )
                     hear = gr.Button("Nghe giọng này", variant="primary")
                     hear_audio = gr.Audio(label="Nghe thử giọng", type="filepath")
-                with gr.Group(elem_classes="card"):
-                    gr.Markdown("**Giọng của bạn**")
-                    gr.Markdown("File mẫu được lưu trong cache nên lần mở sau vẫn còn trong danh sách.", elem_classes="hint")
-                    sample = gr.Audio(label="File giọng mẫu 3–8 giây", type="filepath")
-                    clone_name = gr.Textbox(label="Tên giọng mới", placeholder="Ví dụ: Giọng review")
-                    with gr.Row():
-                        save_voice = gr.Button("Lưu giọng vào danh sách", variant="primary", size="md")
-                        delete_voice = gr.Button("Xóa giọng đã lưu", size="md")
 
             with gr.Tab("4. Video"):
                 gr.Markdown("Giọng đang chọn sẽ đọc cả kịch bản. Nghe một câu trước, rồi xuất video.", elem_classes="hint")
                 with gr.Group(elem_classes="card"):
                     with gr.Row():
-                        voice = gr.Dropdown(choices=FALLBACK_VOICES, value="Hải Đăng", label="Giọng VieNeu-TTS v3 Turbo")
+                        voice = gr.Dropdown(choices=voice_choices(), value="Hải Đăng", label="Giọng VieNeu-TTS v3 Turbo")
                         refresh = gr.Button("Tải danh sách giọng", size="md")
                     ref_audio = gr.Audio(
                         label="Hoặc file giọng mẫu 3–8 giây, nếu chưa lưu vào danh sách",
@@ -954,12 +1086,72 @@ def build_demo():
                     srt_file = gr.File(label="Phụ đề SRT")
                     result_box = gr.Textbox(label="File đã lưu", lines=2, interactive=False, buttons=["copy"])
 
+            with gr.Tab("Giọng TTS"):
+                gr.Markdown(
+                    "Màn này tách khỏi bốn bước làm video. VieNeu v3 Turbo clone từ một đoạn nói 3–8 giây, không cần lời của đoạn đó.",
+                    elem_classes="hint",
+                )
+                with gr.Group(elem_classes="card"):
+                    gr.Markdown("**Giọng đã lưu**")
+                    gr.Markdown(
+                        "File mẫu nằm trong thư mục giọng trên Drive. Nghe lại, đổi tên hoặc xóa. Giọng này chọn được ở bước Giọng.",
+                        elem_classes="hint",
+                    )
+                    tts_saved = gr.Dropdown(label="Giọng đã clone", choices=saved_choice_pairs(), value=None)
+                    saved_preview = gr.Audio(label="Đoạn mẫu của giọng đang chọn", type="filepath")
+                    saved_transcript = gr.Textbox(label="Lời đã ghi cùng đoạn mẫu", lines=2, interactive=False)
+                    rename_box = gr.Textbox(label="Tên mới", placeholder="Đặt tên khác cho giọng đang chọn")
+                    with gr.Row():
+                        rename_voice = gr.Button("Đổi tên", size="md")
+                        delete_saved = gr.Button("Xóa giọng này", size="md")
+                with gr.Group(elem_classes="card"):
+                    gr.Markdown("**Tạo giọng mới**")
+                    gr.Markdown(
+                        "Tải lên hoặc bấm micro để thu 3–8 giây, một người nói, ít tiếng ồn. Ô lời chỉ để ghi nhớ; VieNeu v3 Turbo không bắt buộc.",
+                        elem_classes="hint",
+                    )
+                    clone_audio = gr.Audio(
+                        label="Đoạn giọng mẫu",
+                        sources=["upload", "microphone"],
+                        type="filepath",
+                    )
+                    ref_transcript = gr.Textbox(
+                        label="Lời trong đoạn mẫu (không bắt buộc)",
+                        lines=2,
+                        placeholder="Gõ đúng câu trong đoạn mẫu nếu bạn muốn lưu lại.",
+                    )
+                    clone_name = gr.Textbox(label="Tên giọng", placeholder="Ví dụ: Giọng review")
+                    save_clone = gr.Button("Lưu giọng này", variant="primary")
+                with gr.Group(elem_classes="card"):
+                    gr.Markdown("**Đọc một đoạn**")
+                    gr.Markdown("Chọn giọng đã lưu hoặc giọng có sẵn, dán chữ, rồi nghe và tải file. File wav được chép vào thư mục output.", elem_classes="hint")
+                    speak_voice = gr.Dropdown(label="Giọng đọc", choices=voice_choices(), value="Hải Đăng")
+                    speak_text = gr.Textbox(
+                        label="Chữ cần đọc",
+                        lines=5,
+                        placeholder="Dán lời review hoặc một đoạn bất kỳ.",
+                    )
+                    generate = gr.Button("Đọc đoạn này", variant="primary")
+                    speech_audio = gr.Audio(label="Nghe kết quả", type="filepath")
+                    with gr.Row():
+                        speech_file = gr.File(label="Tải file wav")
+                        speech_path = gr.Textbox(label="Đã lưu tại", interactive=False, buttons=["copy"])
+
         with gr.Accordion("Nhật ký", open=False):
             log_box = gr.Textbox(label="Nhật ký", lines=14, elem_id="log", show_label=False)
         gr.HTML(CREDITS, elem_id="credits", padding=False)
 
-        demo.load(on_boot, None, [storage_note, cache_box, output_box, root_box, status, steps, saved])
-        apply_root.click(on_apply_root, [root_box], [storage_note, cache_box, output_box, root_box, status, saved])
+        voice_screen = [tts_saved, saved_preview, saved_transcript, rename_box, voice_lab, voice, speak_voice]
+        demo.load(
+            on_boot,
+            None,
+            [storage_note, cache_box, voices_box, output_box, root_box, status, steps, saved, *voice_screen],
+        )
+        apply_root.click(
+            on_apply_root,
+            [root_box],
+            [storage_note, cache_box, voices_box, output_box, root_box, status, saved, *voice_screen],
+        )
         reload_saved.click(on_reload_saved, None, [saved, status])
         open_saved.click(
             on_open,
@@ -981,12 +1173,31 @@ def build_demo():
         )
         manual.click(on_manual, [job_state, scene_count, title, chapter, lore], [script_table, status, steps, log_box])
         provider.change(on_provider, provider, [base_url, model])
-        refresh_lab.click(on_voices, None, [voice_lab, voice, status, log_box])
-        refresh.click(on_voices, None, [voice, voice_lab, status, log_box])
+        refresh_lab.click(on_voices, None, [voice_lab, voice, speak_voice, status, log_box])
+        refresh.click(on_voices, None, [voice, voice_lab, speak_voice, status, log_box])
         voice_lab.change(on_pick_voice, voice_lab, voice)
-        save_voice.click(on_save_voice, [clone_name, sample], [voice_lab, voice, sample, status, log_box])
-        delete_voice.click(on_delete_voice, voice_lab, [voice_lab, voice, status, log_box])
-        hear.click(on_hear, [voice_lab, trial_text, sample, job_state], [hear_audio, status, steps, log_box])
+        hear.click(on_hear, [voice_lab, trial_text, job_state], [hear_audio, status, steps, log_box])
+        tts_saved.change(on_pick_saved, tts_saved, [saved_preview, saved_transcript, rename_box])
+        save_clone.click(
+            on_clone_voice,
+            [clone_name, clone_audio, ref_transcript],
+            [*voice_screen, clone_audio, clone_name, ref_transcript, status, log_box],
+        )
+        rename_voice.click(
+            on_rename_voice,
+            [tts_saved, rename_box],
+            [tts_saved, rename_box, voice_lab, voice, speak_voice, status, log_box],
+        )
+        delete_saved.click(
+            on_delete_saved,
+            [tts_saved],
+            [*voice_screen, status, log_box],
+        )
+        generate.click(
+            on_generate_speech,
+            [speak_voice, speak_text],
+            [speech_audio, speech_file, speech_path, status, log_box],
+        )
         preview.click(on_preview, [job_state, script_table, voice, ref_audio], [preview_audio, status, steps, log_box])
         render.click(
             on_render,

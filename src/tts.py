@@ -88,6 +88,26 @@ def _voice_id(item) -> str:
     return str(item)
 
 
+def _enroll(engine, name: str, path: str, transcript: str = "") -> None:
+    """Đưa một file mẫu vào model. VieNeu v3 Turbo không cần lời của đoạn mẫu."""
+    spoken = (transcript or "").strip()
+    attempts = []
+    if spoken:
+        attempts.append({"denoise": True, "ref_text": spoken})
+        attempts.append({"ref_text": spoken})
+    attempts.append({"denoise": True})
+    attempts.append({})
+    last = None
+    for kwargs in attempts:
+        try:
+            engine.add_voice(name, path, **kwargs)
+            return
+        except TypeError as error:
+            last = error
+    if last is not None:
+        engine.add_voice(name, path)
+
+
 def register_saved(engine, log=None) -> None:
     """Đưa các giọng đã lưu vào model của phiên này, mỗi giọng một lần."""
     from src.voices import saved_voices
@@ -99,9 +119,7 @@ def register_saved(engine, log=None) -> None:
         if not os.path.isfile(item["path"]):
             continue
         try:
-            engine.add_voice(name, item["path"], denoise=False)
-        except TypeError:
-            engine.add_voice(name, item["path"])
+            _enroll(engine, name, item["path"], item.get("transcript") or "")
         except Exception as error:
             if log:
                 log(f"Không mở được giọng đã lưu {name}: {error}")
@@ -190,24 +208,26 @@ def open_voice(voice: str, ref_audio: str | None, log=None) -> str:
     return _resolve_voice(engine, voice)
 
 
-def save_cloned_voice(name: str, ref_audio: str | None, log=None) -> str:
-    """Clone một file mẫu và ghi giọng vào danh sách."""
+def save_cloned_voice(name: str, ref_audio: str | None, transcript: str = "", log=None) -> str:
+    """Clone một file mẫu 3–8 giây và ghi giọng vào danh sách."""
     from src.voices import check_sample, saved_voices, store_sample
 
     cleaned = check_sample(name, ref_audio)
+    spoken = (transcript or "").strip()
     if log:
         log(f"Đang clone giọng {cleaned}.")
+        if spoken:
+            log("Có lời của đoạn mẫu. Gửi kèm nếu bản VieNeu nhận.")
+        else:
+            log("VieNeu v3 Turbo clone từ đoạn mẫu, không cần lời của đoạn đó.")
     engine = get_engine(log)
     register_saved(engine, log)
     existing = {item.casefold() for item in _preset_names(engine)}
     if cleaned.casefold() in existing and not any(item["name"].casefold() == cleaned.casefold() for item in saved_voices()):
         raise RuntimeError("Tên này trùng một giọng có sẵn. Hãy đặt tên khác.")
-    record = store_sample(cleaned, ref_audio)
+    record = store_sample(cleaned, ref_audio, spoken)
     try:
-        try:
-            engine.add_voice(record["name"], record["path"])
-        except Exception:
-            engine.add_voice(record["name"], record["path"], denoise=False)
+        _enroll(engine, record["name"], record["path"], spoken)
     except Exception:
         from src.voices import forget_voice
 
@@ -220,6 +240,67 @@ def save_cloned_voice(name: str, ref_audio: str | None, log=None) -> str:
             log("File dài hơn 8 giây. VieNeu dùng khoảng 8 giây đầu.")
         log(f"Đã lưu giọng {record['name']} vào danh sách.")
     return record["name"]
+
+
+def rename_cloned_voice(old: str, new: str, log=None) -> str:
+    from src.voices import find_saved, rename_saved
+
+    renamed = rename_saved(old, new)
+    _ENROLLED.discard((old or "").strip())
+    item = find_saved(renamed)
+    if _ENGINE is not None and item and os.path.isfile(item["path"]):
+        remover = getattr(_ENGINE, "remove_voice", None)
+        if remover:
+            try:
+                remover((old or "").strip())
+            except Exception:
+                pass
+        try:
+            _enroll(_ENGINE, renamed, item["path"], item.get("transcript") or "")
+            _ENROLLED.add(renamed)
+        except Exception as error:
+            if log:
+                log(f"Đã đổi tên trên đĩa. Phiên này chưa nhận lại giọng: {error}")
+    if log:
+        log(f"Đã đổi tên thành {renamed}.")
+    return renamed
+
+
+def speech_output_path(voice: str) -> str:
+    """File đọc thử nằm trong thư mục output, cạnh video."""
+    import time
+    import uuid
+
+    from src.storage import output_dir
+    from src.textutil import slugify
+
+    stamp = time.strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:4]
+    slug = slugify(voice or "") or "giong"
+    return os.path.join(output_dir(), f"{slug}-{stamp}.wav")
+
+
+def generate_speech(text: str, voice: str, log=None) -> str:
+    """Đọc một đoạn bằng giọng đã lưu hoặc giọng có sẵn, ghi file vào output."""
+    from src.voices import is_saved
+
+    spoken = (text or "").strip()
+    if not spoken:
+        raise RuntimeError("Hãy nhập hoặc dán câu cần đọc.")
+    if len(spoken) > 2000:
+        spoken = spoken[:2000].strip()
+        if log:
+            log("Đoạn đọc được cắt còn 2000 ký tự.")
+    chosen_name = (voice or "").strip()
+    if not chosen_name:
+        raise RuntimeError("Hãy chọn một giọng.")
+    if not is_saved(chosen_name) and chosen_name not in FALLBACK_VOICES:
+        raise RuntimeError("Hãy chọn một giọng đã lưu hoặc một giọng có sẵn.")
+    chosen = open_voice(chosen_name, None, log)
+    dest = speech_output_path(chosen_name)
+    synthesize_to_file(spoken, chosen, dest, log)
+    if log:
+        log(f"Đã lưu file đọc: {dest}")
+    return dest
 
 
 def delete_cloned_voice(name: str, log=None) -> str:

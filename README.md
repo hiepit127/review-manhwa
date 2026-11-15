@@ -25,8 +25,10 @@ Trong giao diện, thanh trên cùng hiện đang lưu ở đâu. Làm lần lư
 
 1. **Nguồn** — tải ảnh, PDF hoặc ZIP, hoặc dán từng trang vào ô ảnh rồi bấm `Thêm trang này`. Sau đó bấm `Tách panel`. Việc cũ nằm ở **Việc đã lưu**.
 2. **Kịch bản** — dán API key xAI (tạo tại [console.x.ai](https://console.x.ai)), bấm `Viết kịch bản`. Model mặc định là `grok-4.7`. Sửa cột `Lời review` nếu câu chữ chưa ổn. Không có API thì bấm `Chia cảnh, tôi viết tay`.
-3. **Giọng** — chọn giọng có sẵn và bấm `Nghe giọng này`. Muốn giọng riêng: đưa file mẫu 3–8 giây, đặt tên, rồi `Lưu giọng vào danh sách`.
+3. **Giọng** — chọn giọng có sẵn hoặc giọng đã clone, rồi bấm `Nghe giọng này`.
 4. **Video** — `Nghe thử câu kịch bản` đọc câu đầu. `Xuất video` ghép file và chép vào thư mục output. Đường dẫn hiện ở ô `File đã lưu`.
+
+Tab **Giọng TTS** nằm ngoài bốn bước đó. Tải lên hoặc thu một đoạn 3–8 giây, đặt tên, rồi `Lưu giọng này`. VieNeu v3 Turbo clone từ đoạn mẫu, không cần lời của đoạn đó; ô lời chỉ để ghi nhớ. Giọng đã lưu nghe lại, đổi tên hoặc xóa được, và hiện trong bước **Giọng**. Dán chữ rồi `Đọc đoạn này` để nghe và tải file wav trong thư mục output. Giọng nằm ở `cache/voices`.
 
 API key chỉ nằm trong RAM của phiên, không ghi vào `manifest.json`. Lần đầu VieNeu tải model (vài trăm MB) từ Hugging Face.
 
