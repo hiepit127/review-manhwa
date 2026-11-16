@@ -4,7 +4,7 @@ Công cụ dựng video review manhwa, chạy trên Google Colab và thao tác b
 
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/hiepit127/review-manhwa/blob/main/notebooks/Review_Manhwa.ipynb)
 
-Chỉ đưa file truyện bạn có quyền sử dụng. Tool không tải chương từ website.
+Chỉ dùng truyện bạn có quyền sử dụng. Có thể tải file, dán trang, hoặc lấy ảnh một chương từ link bạn được phép đọc.
 
 ## Kết nối Google Drive
 
@@ -36,7 +36,7 @@ Cùng cách với [Audio Full Truyện](https://github.com/hiepit127/generate-yt
 
 Trong giao diện, thanh trên cùng hiện đang lưu ở đâu. Làm lần lượt bốn bước:
 
-1. **Nguồn** — tải ảnh, PDF hoặc ZIP, hoặc dán từng trang vào ô ảnh rồi bấm `Thêm trang này`. Sau đó bấm `Tách panel`. Việc cũ nằm ở **Việc đã lưu**.
+1. **Nguồn** — dán link chương rồi bấm `Lấy truyện`, hoặc tải ảnh, PDF, ZIP, hoặc dán từng trang. Sau đó bấm `Tách panel`. Ảnh lấy về nằm trong `cache/jobs/<job>/source`. Việc cũ nằm ở **Việc đã lưu**.
 2. **Kịch bản** — bấm `Viết kịch bản`. Lời viết bằng xAI (`grok-4.7`). API key lấy từ Colab Secrets `XAI_API_KEY` (hoặc biến môi trường / `.env` khi chạy local), không có ô nhập key. Dòng trạng thái báo đã thấy key, hoặc nhắc thêm secret đó. Nút `Viết kịch bản` tắt khi chưa có key. Sửa cột `Lời review` nếu câu chữ chưa ổn. Không có API thì bấm `Chia cảnh, tôi viết tay`.
 3. **Giọng** — chọn giọng đã có trong danh sách, rồi bấm `Nghe giọng này`. Giọng mới tạo ở màn **Tạo giọng**.
 4. **Video** — `Nghe thử câu kịch bản` đọc câu đầu. `Xuất video` ghép file và chép vào thư mục output. Đường dẫn hiện ở ô `File đã lưu`.

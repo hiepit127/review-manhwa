@@ -529,9 +529,35 @@ def _hold_prepare(job_id, message, kind, log):
     )
 
 
+def on_fetch(url, end_chapter, title, chapter, progress=gr.Progress()):
+    from src.comicfetch import fetch_chapters
+
+    log = StepLog()
+    if not (url or "").strip():
+        log("Chưa có link chương.")
+        return [], [], _status("Hãy dán link chương truyện.", "err"), log.text(), gr.update(), gr.update()
+    try:
+        fetched = fetch_chapters(url, end_chapter, log, progress)
+    except Exception as error:
+        message = _fail(log, error)
+        return [], [], _status(message, "err"), log.text(), gr.update(), gr.update()
+    count = fetched["count"]
+    next_title = title if (title or "").strip() else fetched["title"]
+    next_chapter = chapter if (chapter or "").strip() else fetched["chapter"]
+    return (
+        fetched["pages"],
+        fetched["pages"],
+        _status(f"Đã lấy {count} trang. Bấm Tách panel để cắt và đọc chữ.", "ok"),
+        log.text(),
+        next_title,
+        next_chapter,
+    )
+
+
 def on_prepare(
     files,
     pasted,
+    fetched,
     title,
     chapter,
     lore,
@@ -550,7 +576,7 @@ def on_prepare(
     yield _hold_prepare(job_id, "Đang tách panel và đọc chữ. Cứ để tab mở.", "wait", log)
     try:
         job = prepare_job(
-            as_list(files) + [path for path in (pasted or []) if path],
+            as_list(files) + [path for path in (pasted or []) if path] + [path for path in (fetched or []) if path],
             title=title,
             chapter=chapter,
             lore=lore,
@@ -993,7 +1019,10 @@ def build_demo():
         job_state = gr.State("")
         with gr.Tabs(elem_id="flow") as flow_tabs:
             with gr.Tab("1. Nguồn"):
-                gr.Markdown("Đưa trang vào, rồi bấm **Tách panel**. Ảnh, PDF, ZIP hoặc dán từng trang đều được.", elem_classes="hint")
+                gr.Markdown(
+                    "Đưa trang vào, rồi bấm **Tách panel**. Có thể lấy cả chương từ link, tải file, hoặc dán từng trang.",
+                    elem_classes="hint",
+                )
                 with gr.Group(elem_classes="card"):
                     gr.Markdown("**Việc đã lưu**")
                     gr.Markdown("Mở lại panel và lời đã làm, kể cả sau khi tắt Colab nếu dữ liệu nằm trên Drive.", elem_classes="hint")
@@ -1001,6 +1030,31 @@ def build_demo():
                     with gr.Row():
                         reload_saved = gr.Button("Làm mới danh sách", size="md")
                         open_saved = gr.Button("Mở việc này", size="md")
+                with gr.Group(elem_classes="card"):
+                    gr.Markdown("**Lấy từ link chương**")
+                    gr.Markdown(
+                        "Dán link một chương. Có thể lấy thêm vài chương liền sau nếu link có dạng chuong-1.",
+                        elem_classes="hint",
+                    )
+                    chapter_url = gr.Textbox(
+                        label="Link chương truyện",
+                        placeholder="https://www.zettruyen5.com/truyen-tranh/.../chuong-1",
+                    )
+                    end_chapter = gr.Number(
+                        label="Đến chương (0 = chỉ link này)",
+                        value=0,
+                        precision=0,
+                        minimum=0,
+                        info="Chỉ khi link có chuong-N, chapter-N hoặc chap-N. Tối đa 15 chương.",
+                    )
+                    fetch_btn = gr.Button("Lấy truyện", variant="primary", elem_id="go-fetch")
+                    fetched_state = gr.State([])
+                    fetched_gallery = gr.Gallery(
+                        label="Trang đã lấy",
+                        columns=6,
+                        height=220,
+                        object_fit="contain",
+                    )
                 with gr.Group(elem_classes="card"):
                     gr.Markdown("**Tải file**")
                     files = gr.File(
@@ -1293,9 +1347,14 @@ def build_demo():
         add_page.click(on_add_page, [paste_image, pasted_state], [pasted_state, pasted_gallery, paste_image, status, log_box])
         drop_page.click(on_drop_page, [pasted_state], [pasted_state, pasted_gallery, status, log_box])
         clear_pasted.click(on_clear_pages, [pasted_state], [pasted_state, pasted_gallery, status, log_box])
+        fetch_btn.click(
+            on_fetch,
+            [chapter_url, end_chapter, title, chapter],
+            [fetched_state, fetched_gallery, status, log_box, title, chapter],
+        )
         prepare.click(
             on_prepare,
-            [files, pasted_state, title, chapter, lore, start_page, end_page, do_slice, rtl, do_ocr, langs, use_gpu, force_redo, job_state],
+            [files, pasted_state, fetched_state, title, chapter, lore, start_page, end_page, do_slice, rtl, do_ocr, langs, use_gpu, force_redo, job_state],
             [job_state, gallery, panel_table, script_table, script_file, video, srt_file, result_box, status, steps, log_box, saved],
         )
         write.click(

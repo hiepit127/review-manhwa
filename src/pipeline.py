@@ -54,7 +54,7 @@ def prepare_job(
         if path and os.path.isfile(path):
             paths.append(path)
     if not paths:
-        raise RuntimeError("Hãy tải ảnh, PDF, ZIP, hoặc dán từng trang rồi bấm Tách panel.")
+        raise RuntimeError("Hãy tải ảnh, dán trang, hoặc lấy truyện từ link rồi bấm Tách panel.")
 
     key = ""
     if use_cache:
