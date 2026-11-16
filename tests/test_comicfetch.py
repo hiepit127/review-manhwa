@@ -32,6 +32,20 @@ def _image(width: int, height: int, fmt: str) -> bytes:
     return buffer.getvalue()
 
 
+def test_real_zettruyen_chapter_is_109_pages_in_numeric_order():
+    page = "https://www.zettruyen5.com/truyen-tranh/canh-sat-thien-tai-chuyen-sinh/chuong-1"
+    found = extract_page(_read("zettruyen5-canh-sat-chuong-1.html"), page)
+    assert len(found["urls"]) == 109
+    assert found["urls"][0].endswith("/1/0.jpg")
+    assert found["urls"][-1].endswith("/1/108.jpg")
+    assert [url.rsplit("/", 1)[-1] for url in found["urls"]] == [f"{n}.jpg" for n in range(109)]
+    blob = " ".join(found["urls"])
+    assert "cdn1.zetimage.com" not in blob
+    assert "/thumb/" not in blob
+    assert "favicon" not in blob
+    assert "icon.svg" not in blob
+
+
 def test_zettruyen_fixture_keeps_reading_order_and_skips_ads():
     found = extract_page(_read("zettruyen_chapter.html"), PAGE)
     assert found["urls"] == [
@@ -74,6 +88,37 @@ def test_chapter_range_rewrites_only_the_chapter_number():
         chapter_urls(PAGE, 40)
     with pytest.raises(RuntimeError, match="http"):
         chapter_urls("ftp://example/chuong-1", 0)
+
+
+def test_image_request_sends_chrome_user_agent_and_referer(monkeypatch):
+    captured = {}
+
+    class _Response:
+        status = 200
+
+        def read(self):
+            return b"ok"
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    def urlopen(request, timeout=30):
+        captured["ua"] = request.get_header("User-agent")
+        captured["referer"] = request.get_header("Referer")
+        return _Response()
+
+    monkeypatch.setattr("urllib.request.urlopen", urlopen)
+    from src.comicfetch import _request
+
+    referer = "https://www.zettruyen5.com/truyen-tranh/canh-sat-thien-tai-chuyen-sinh/chuong-1"
+    status, payload = _request("https://cdn3.zetimage.com/canh-sat-thien-tai-chuyen-sinh/1/0.jpg", referer, 10)
+    assert status == 200 and payload == b"ok"
+    assert captured["ua"].startswith("Mozilla/5.0")
+    assert "Chrome/" in captured["ua"]
+    assert captured["referer"] == referer
 
 
 def test_cloudflare_message_names_the_block():

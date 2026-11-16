@@ -34,6 +34,8 @@ _CHAPTER_MARKERS = (
     "reading-content",
     "comicpage",
     "content",
+    "chapter-images-container",
+    "chapter-img",
 )
 _SKIP = (
     "logo",
@@ -183,6 +185,33 @@ def _dedupe(urls: list[str]) -> list[str]:
     return ordered
 
 
+def _chapter_image(url: str) -> bool:
+    """Bỏ thumbnail CDN, icon và ảnh lặp trong onerror."""
+    low = url.lower().split("?", 1)[0].split("#", 1)[0]
+    if "/thumb/" in low or "cdn1.zetimage.com" in low:
+        return False
+    if low.endswith((".ico", ".svg")):
+        return False
+    if any(part in low for part in ("/favicon", "/sprite", "/icons/", "/icon.", "logo.")):
+        return False
+    return True
+
+
+def _page_number(url: str) -> int | None:
+    """Số trang trên CDN zetimage. 10.jpg đứng sau 2.jpg, không phải sau 1.jpg."""
+    if "zetimage.com" not in url.lower() or "/thumb/" in url.lower():
+        return None
+    match = re.search(r"/(\d+)\.(?:jpe?g|png|webp|avif)$", url.lower().split("?", 1)[0])
+    return int(match.group(1)) if match else None
+
+
+def _reading_order(urls: list[str]) -> list[str]:
+    numbers = [_page_number(url) for url in urls]
+    if not urls or any(number is None for number in numbers):
+        return urls
+    return [url for _, url in sorted(zip(numbers, urls), key=lambda item: item[0])]
+
+
 def extract_page(html: str, page_url: str) -> dict:
     """Đọc HTML chương. Trả về url ảnh theo thứ tự đọc, tên truyện và chương."""
     parser = _PageParser()
@@ -202,6 +231,7 @@ def extract_page(html: str, page_url: str) -> dict:
     urls = _dedupe(chapter_urls or other_urls)
     if not urls:
         urls = _dedupe(_absolute(page_url, item) for item in _IMG_IN_TEXT.findall(html or "") if _usable(item))
+    urls = _reading_order([url for url in urls if _chapter_image(url)])
     title = parser.og_title or parser.h1 or parser.title
     title = re.sub(r"\s*[-|–]\s*(Đọc|ZetTruyen|NetTruyen|TruyenQQ|BlogTruyen).*$", "", title, flags=re.IGNORECASE).strip()
     chapter = ""
