@@ -9,8 +9,8 @@ Drive tự đồng bộ. Không gọi API Google Drive, không đọc credential
     python colab/setup_colab.py all --dry-run --base /tmp/review-manhwa
 
 Secret không in ra. Token GitHub chỉ dùng trong notebook, dưới dạng header.
-API key viết lời đọc từ Colab Secrets (XAI_API_KEY, OPENAI_API_KEY) hoặc từ
-biến môi trường / .env, rồi gán vào os.environ. Giá trị không in ra.
+API key viết lời chỉ là XAI_API_KEY: Colab Secrets, rồi biến môi trường, rồi .env.
+Giá trị không in ra.
 """
 
 from __future__ import annotations
@@ -122,7 +122,7 @@ def check_gpu():
     return found
 
 
-def prepare(base=DEFAULT_BASE, hf_on_drive=True, dry_run=None) -> dict:
+def prepare(base=DEFAULT_BASE, hf_on_drive=True, dry_run=None, announce=True) -> dict:
     """Tạo thư mục bền và gán biến môi trường mà app đọc.
 
     ``base`` là thư mục gốc, mặc định ``MyDrive/ReviewManhwa``. Bên trong có
@@ -139,7 +139,8 @@ def prepare(base=DEFAULT_BASE, hf_on_drive=True, dry_run=None) -> dict:
         used = Path(REPO)
         on_drive = False
         note = "Chưa gắn Google Drive hoặc không ghi được thư mục đã chọn. Đang lưu trên máy này."
-        print("⚠️  " + note)
+        if announce:
+            print("⚠️  " + note)
 
     layout = _storage().folders(str(used))
     if on_drive and not hf_on_drive and Path("/content").is_dir():
@@ -154,7 +155,8 @@ def prepare(base=DEFAULT_BASE, hf_on_drive=True, dry_run=None) -> dict:
         hf,
     ]
     for folder in dirs:
-        print(f"📁 {folder}")
+        if announce:
+            print(f"📁 {folder}")
         if not dry:
             folder.mkdir(parents=True, exist_ok=True)
 
@@ -181,10 +183,11 @@ def prepare(base=DEFAULT_BASE, hf_on_drive=True, dry_run=None) -> dict:
         where = "máy local"
     else:
         where = "thư mục đã chọn"
-    print(f"✅ Dữ liệu ({where}): {used}")
-    from src.keys import summary_line
+    from src.keys import load_api_keys
 
-    print(summary_line())
+    load_api_keys()
+    if announce:
+        print(f"✅ Dữ liệu ({where}): {used}")
     return {
         "base": str(used),
         "on_drive": on_drive,

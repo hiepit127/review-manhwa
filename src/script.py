@@ -156,10 +156,8 @@ def generate_narrations(
         raise RuntimeError(missing_message(provider))
     if not model.strip():
         raise RuntimeError("Điền tên model.")
-    if provider == "xAI":
-        base_url = XAI_BASE_URL
-    elif not (base_url or "").strip():
-        raise RuntimeError("Điền base URL của API tương thích OpenAI.")
+    del provider, base_url
+    base_url = XAI_BASE_URL
 
     config = load_config()
     style_text = (config.get("styles") or {}).get(style_key) or (config.get("styles") or {}).get("review", "")
@@ -182,7 +180,7 @@ def generate_narrations(
             },
             tail,
         )
-        log(f"Gọi {provider} cho cảnh {chunk[0]['id']}-{chunk[-1]['id']}")
+        log(f"Gọi xAI cho cảnh {chunk[0]['id']}-{chunk[-1]['id']}")
         raw = _call(
             api_key=api_key.strip(),
             base_url=(base_url or "").strip(),

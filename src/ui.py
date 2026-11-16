@@ -596,8 +596,6 @@ def on_script(
     title,
     chapter,
     lore,
-    provider,
-    base_url,
     model,
     temperature,
     use_vision,
@@ -608,8 +606,8 @@ def on_script(
     from src.keys import api_key_for, has_api_key, missing_message
 
     log = StepLog()
-    if not has_api_key(provider):
-        message = missing_message(provider)
+    if not has_api_key():
+        message = missing_message()
         log(message)
         yield gr.update(), gr.update(), _status(message, "err"), _steps(_safe_job(job_id), "script"), log.text()
         return
@@ -617,7 +615,7 @@ def on_script(
         log("Hãy tách panel trước.")
         yield gr.update(), gr.update(), _status("Hãy tách panel trước.", "err"), _steps(None, "script"), log.text()
         return
-    api_key = api_key_for(provider)
+    api_key = api_key_for()
     yield gr.update(), gr.update(), _status("Đang viết kịch bản. Cứ để tab mở.", "wait"), _steps(_safe_job(job_id), "script"), log.text()
     try:
         job = write_script(
@@ -626,9 +624,9 @@ def on_script(
             title=title,
             chapter=chapter,
             lore=lore,
-            provider=provider,
+            provider="xAI",
             api_key=api_key,
-            base_url=base_url,
+            base_url="",
             model=model,
             temperature=temperature,
             use_vision=use_vision,
@@ -670,16 +668,6 @@ def on_manual(job_id, scene_count, title, chapter, lore):
         _steps(job, "script"),
         log.text(),
     )
-
-
-def on_provider(provider):
-    from src.keys import has_api_key, status_html
-
-    line = status_html(provider)
-    button = gr.update(interactive=has_api_key(provider))
-    if provider == "xAI":
-        return gr.update(visible=False), gr.update(value="grok-4.7"), line, button
-    return gr.update(visible=True), gr.update(value=""), line, button
 
 
 def on_voices():
@@ -1097,11 +1085,8 @@ def build_demo():
                             value="review",
                             label="Giọng văn",
                         )
-                    provider = gr.Radio(choices=["xAI", "OpenAI-compatible"], value="xAI", label="Nguồn viết lời")
                     key_line = gr.HTML(status_html("xAI"), elem_id="key-line", padding=False)
-                    with gr.Row():
-                        model = gr.Textbox(label="Model", value="grok-4.7", info="xAI dùng grok-4.7.")
-                        base_url = gr.Textbox(label="Base URL", visible=False)
+                    model = gr.Textbox(label="Model", value="grok-4.7", info="xAI dùng grok-4.7.")
                     with gr.Row():
                         temperature = gr.Slider(0, 1.2, value=0.6, step=0.05, label="Độ sáng tạo")
                         use_vision = gr.Checkbox(value=False, label="Gửi ảnh panel cho model")
@@ -1110,7 +1095,7 @@ def build_demo():
                     write = gr.Button(
                         "Viết kịch bản",
                         variant="primary",
-                        interactive=has_api_key("xAI"),
+                        interactive=has_api_key(),
                         elem_id="write-script",
                     )
                     manual = gr.Button("Chia cảnh, tôi viết tay", size="md")
@@ -1315,11 +1300,10 @@ def build_demo():
         )
         write.click(
             on_script,
-            [job_state, scene_count, title, chapter, lore, provider, base_url, model, temperature, use_vision, style, notes],
+            [job_state, scene_count, title, chapter, lore, model, temperature, use_vision, style, notes],
             [script_table, script_file, status, steps, log_box],
         )
         manual.click(on_manual, [job_state, scene_count, title, chapter, lore], [script_table, status, steps, log_box])
-        provider.change(on_provider, provider, [base_url, model, key_line, write])
         refresh_lab.click(on_voices, None, [voice_lab, voice, speak_voice, status, log_box])
         refresh.click(on_voices, None, [voice, voice_lab, speak_voice, status, log_box])
         voice_lab.change(on_pick_voice, voice_lab, voice)
