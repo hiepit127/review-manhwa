@@ -21,7 +21,7 @@ Cùng cách với [Audio Full Truyện](https://github.com/hiepit127/generate-yt
    | `hf-cache` | `HF_HOME` | Trọng số VieNeu |
 
    Drive không dùng được symlink của Hugging Face, nên tool đặt `HF_HUB_DISABLE_SYMLINKS=1` và `HF_HUB_DISABLE_XET=1`. Bỏ chọn `MODEL_ON_DRIVE` nếu Drive gần đầy: model nằm ở `/content/hf-cache` của phiên đó.
-3. **Secret.** Repo private thì Colab Secrets có `GITHUB_TOKEN` (quyền đọc nội dung). Token chỉ đi trong header của lệnh git, không ghi vào `.git/config`, không in ra notebook. API key viết lời nhập trong giao diện và chỉ nằm trong RAM của phiên, không ghi vào Drive hay `manifest.json`.
+3. **Secret.** Repo private thì Colab Secrets có `GITHUB_TOKEN` (quyền đọc nội dung). Token chỉ đi trong header của lệnh git, không ghi vào `.git/config`, không in ra notebook. API key viết lời cũng để trong Colab Secrets, không nhập trên giao diện: `XAI_API_KEY` (mặc định, tạo tại [console.x.ai](https://console.x.ai)) hoặc `OPENAI_API_KEY` nếu chọn nguồn OpenAI-compatible. Bật **Notebook access** cho từng secret. `prepare()` đọc secret bằng `google.colab.userdata.get` và đưa vào biến môi trường của tiến trình. Key không in ra notebook, không hiện trên giao diện, không ghi vào Drive hay `manifest.json`.
 4. **Khi nào lưu trên máy.** Phiên không gắn được Drive, hoặc thư mục đã chọn không ghi được, thì dữ liệu vào `cache/` và `output/` cạnh mã nguồn. Cùng file và cùng cách tách thì lần sau dùng lại cache, khỏi OCR lại.
 
 Đổi gốc bằng ô `DRIVE_DIR`, bằng `RM_DRIVE_ROOT` (đường dẫn tuyệt đối, hoặc tên thư mục trong My Drive), hoặc trong accordion **Đổi thư mục gốc**.
@@ -30,14 +30,14 @@ Cùng cách với [Audio Full Truyện](https://github.com/hiepit127/generate-yt
 
 1. Mở notebook bằng nút phía trên.
 2. `Runtime` → `Change runtime type` → **T4 GPU**.
-3. Repo private: Colab → **Secrets**, thêm `GITHUB_TOKEN` và bật **Notebook access**.
+3. Colab → **Secrets** (biểu tượng khóa ở thanh bên trái): thêm `GITHUB_TOKEN` nếu repo private, và `XAI_API_KEY` (hoặc `OPENAI_API_KEY`). Bật **Notebook access**, rồi khởi động lại runtime nếu vừa thêm secret.
 4. **Runtime → Run all.** Ô 2 gắn Drive. Ô 4 tạo thư mục và cài thư viện. Ô 5 mở giao diện.
 5. Giao diện hiện trong khung notebook và qua link `gradio.live`. Đó là đường mở từ máy khác.
 
 Trong giao diện, thanh trên cùng hiện đang lưu ở đâu. Làm lần lượt bốn bước:
 
 1. **Nguồn** — tải ảnh, PDF hoặc ZIP, hoặc dán từng trang vào ô ảnh rồi bấm `Thêm trang này`. Sau đó bấm `Tách panel`. Việc cũ nằm ở **Việc đã lưu**.
-2. **Kịch bản** — dán API key xAI (tạo tại [console.x.ai](https://console.x.ai)), bấm `Viết kịch bản`. Model mặc định là `grok-4.7`. Sửa cột `Lời review` nếu câu chữ chưa ổn. Không có API thì bấm `Chia cảnh, tôi viết tay`.
+2. **Kịch bản** — chọn nguồn và model, bấm `Viết kịch bản`. API key lấy từ Colab Secrets (hoặc biến môi trường / `.env` khi chạy local), không có ô nhập key. Dòng trạng thái báo đã thấy key, hoặc tên secret cần thêm. Nút `Viết kịch bản` tắt khi chưa có key. Model mặc định là `grok-4.7`. Sửa cột `Lời review` nếu câu chữ chưa ổn. Không có API thì bấm `Chia cảnh, tôi viết tay`.
 3. **Giọng** — chọn giọng đã có trong danh sách, rồi bấm `Nghe giọng này`. Giọng mới tạo ở màn **Tạo giọng**.
 4. **Video** — `Nghe thử câu kịch bản` đọc câu đầu. `Xuất video` ghép file và chép vào thư mục output. Đường dẫn hiện ở ô `File đã lưu`.
 
@@ -45,7 +45,7 @@ Màn **Đọc** cũng chỉ chọn giọng đã có, nghe nhanh, rồi dán ch�
 
 Màn **Tạo giọng** là chỗ duy nhất để clone. Kéo thả file hoặc ghi âm 3–8 giây, đặt tên, chọn ngôn ngữ (mặc định Việt Nam) và lĩnh vực nếu muốn, nhập câu nghe thử, tick xác nhận quyền dùng giọng, rồi `Tạo giọng`. Giọng ghi vào `cache/voices`. Nghe lại, đổi tên hoặc xóa ở cột **Giọng đã lưu** trên cùng màn đó.
 
-API key chỉ nằm trong RAM của phiên, không ghi vào `manifest.json`. Lần đầu VieNeu tải model (vài trăm MB) từ Hugging Face.
+API key chỉ nằm trong biến môi trường của phiên, không ghi vào `manifest.json` và không in ra log. Lần đầu VieNeu tải model (vài trăm MB) từ Hugging Face.
 
 ## Pipeline
 
@@ -69,10 +69,11 @@ python app.py
 
 Mở `http://127.0.0.1:7860`. Máy không có NVIDIA thì VieNeu chạy CPU và chậm hơn. Cache nằm ở `cache/`, video ở `output/`, trừ khi trỏ sang chỗ khác.
 
-Đường dẫn có thể ghi trong `.env` cạnh mã nguồn (file này không commit, chỉ nhận biến thư mục, không đọc API key):
+Đường dẫn và API key có thể ghi trong `.env` cạnh mã nguồn (file này không commit). App đọc biến thư mục từ file này. Khi không có Colab Secret và biến môi trường chưa được gán, `XAI_API_KEY` hoặc `OPENAI_API_KEY` trong cùng file được đưa vào môi trường của tiến trình. Giá trị key không in ra log.
 
 ```
 RM_DRIVE_ROOT=/đường/dẫn/ReviewManhwa
+XAI_API_KEY=
 ```
 
 Tạo sẵn cây thư mục, hoặc xem các bước mà không ghi file:

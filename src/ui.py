@@ -179,6 +179,9 @@ footer {display: none !important;}
 #stepper .step.current {border-color: #176b45; box-shadow: inset 0 0 0 1px #176b45;}
 .card {border: 1px solid #e6dfd4 !important; border-radius: 16px !important; background: #fffdf9 !important; padding: 12px 14px 4px !important; margin: 0 0 12px !important;}
 .hint p, .hint span {color: #6b625b !important; font-size: 0.9rem !important;}
+#key-line .key-status {border-radius: 12px; padding: 10px 12px; font-size: 0.92rem; line-height: 1.45;}
+#key-line .key-status.ok {background: #f2f8f4; border: 1px solid #b7d7c6; color: #145c3a;}
+#key-line .key-status.miss {background: #fbf6ec; border: 1px solid #ead7b0; color: #6b4e16;}
 .store {display: flex; flex-direction: column; gap: 2px; margin: 2px 0 8px;}
 .store strong {font-size: 0.95rem; color: #1c1917;}
 .store span {color: #6b625b; font-size: 0.86rem; line-height: 1.4;}
@@ -594,7 +597,6 @@ def on_script(
     chapter,
     lore,
     provider,
-    api_key,
     base_url,
     model,
     temperature,
@@ -603,11 +605,19 @@ def on_script(
     notes,
     progress=gr.Progress(),
 ):
+    from src.keys import api_key_for, has_api_key, missing_message
+
     log = StepLog()
+    if not has_api_key(provider):
+        message = missing_message(provider)
+        log(message)
+        yield gr.update(), gr.update(), _status(message, "err"), _steps(_safe_job(job_id), "script"), log.text()
+        return
     if not job_id:
         log("Hãy tách panel trước.")
         yield gr.update(), gr.update(), _status("Hãy tách panel trước.", "err"), _steps(None, "script"), log.text()
         return
+    api_key = api_key_for(provider)
     yield gr.update(), gr.update(), _status("Đang viết kịch bản. Cứ để tab mở.", "wait"), _steps(_safe_job(job_id), "script"), log.text()
     try:
         job = write_script(
@@ -663,9 +673,13 @@ def on_manual(job_id, scene_count, title, chapter, lore):
 
 
 def on_provider(provider):
+    from src.keys import has_api_key, status_html
+
+    line = status_html(provider)
+    button = gr.update(interactive=has_api_key(provider))
     if provider == "xAI":
-        return gr.update(visible=False), gr.update(value="grok-4.7")
-    return gr.update(visible=True), gr.update(value="")
+        return gr.update(visible=False), gr.update(value="grok-4.7"), line, button
+    return gr.update(visible=True), gr.update(value=""), line, button
 
 
 def on_voices():
@@ -963,9 +977,11 @@ def on_render(
 
 
 def build_demo():
+    from src.keys import has_api_key, load_api_keys, status_html
     from src.tts import voice_choices
     from src.voices import saved_choice_pairs
 
+    load_api_keys()
     info = describe()
     with gr.Blocks(title="Review Manhwa") as demo:
         gr.HTML(BRAND, elem_id="brand", padding=False)
@@ -1063,7 +1079,7 @@ def build_demo():
 
             with gr.Tab("2. Kịch bản"):
                 gr.Markdown(
-                    "Có API thì bấm **Viết kịch bản**. Không có API thì **Chia cảnh, tôi viết tay**, rồi sửa cột Lời review.",
+                    "Bấm **Viết kịch bản** khi đã có API key. Không có key thì **Chia cảnh, tôi viết tay**, rồi sửa cột Lời review.",
                     elem_classes="hint",
                 )
                 with gr.Group(elem_classes="card"):
@@ -1082,11 +1098,7 @@ def build_demo():
                             label="Giọng văn",
                         )
                     provider = gr.Radio(choices=["xAI", "OpenAI-compatible"], value="xAI", label="Nguồn viết lời")
-                    api_key = gr.Textbox(
-                        label="API key",
-                        type="password",
-                        info="Chỉ nằm trong phiên này, không ghi vào file. xAI: console.x.ai",
-                    )
+                    key_line = gr.HTML(status_html("xAI"), elem_id="key-line", padding=False)
                     with gr.Row():
                         model = gr.Textbox(label="Model", value="grok-4.7", info="xAI dùng grok-4.7.")
                         base_url = gr.Textbox(label="Base URL", visible=False)
@@ -1095,7 +1107,12 @@ def build_demo():
                         use_vision = gr.Checkbox(value=False, label="Gửi ảnh panel cho model")
                     notes = gr.Textbox(label="Ghi chú thêm cho lời thoại", lines=2, placeholder="Ví dụ: xưng hô ngắn, không spoil chương sau.")
                 with gr.Row():
-                    write = gr.Button("Viết kịch bản", variant="primary")
+                    write = gr.Button(
+                        "Viết kịch bản",
+                        variant="primary",
+                        interactive=has_api_key("xAI"),
+                        elem_id="write-script",
+                    )
                     manual = gr.Button("Chia cảnh, tôi viết tay", size="md")
                 script_table = gr.Dataframe(
                     headers=SCENE_HEADERS,
@@ -1298,11 +1315,11 @@ def build_demo():
         )
         write.click(
             on_script,
-            [job_state, scene_count, title, chapter, lore, provider, api_key, base_url, model, temperature, use_vision, style, notes],
+            [job_state, scene_count, title, chapter, lore, provider, base_url, model, temperature, use_vision, style, notes],
             [script_table, script_file, status, steps, log_box],
         )
         manual.click(on_manual, [job_state, scene_count, title, chapter, lore], [script_table, status, steps, log_box])
-        provider.change(on_provider, provider, [base_url, model])
+        provider.change(on_provider, provider, [base_url, model, key_line, write])
         refresh_lab.click(on_voices, None, [voice_lab, voice, speak_voice, status, log_box])
         refresh.click(on_voices, None, [voice, voice_lab, speak_voice, status, log_box])
         voice_lab.change(on_pick_voice, voice_lab, voice)

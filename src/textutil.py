@@ -190,7 +190,9 @@ def public_error(error: Exception, secret: str = "") -> str:
     message = f"{type(error).__name__}: {error}"
     if secret:
         message = message.replace(secret, "***")
-    return message
+    from src.keys import redact
+
+    return redact(message)
 
 
 def file_path(item) -> str | None:
@@ -230,7 +232,9 @@ class StepLog:
         self.started = time.perf_counter()
 
     def __call__(self, message: str) -> None:
-        line = f"[{time.perf_counter() - self.started:6.1f}s] {message}"
+        from src.keys import redact
+
+        line = f"[{time.perf_counter() - self.started:6.1f}s] {redact(str(message))}"
         print(line, flush=True)
         self.lines.append(line)
 
