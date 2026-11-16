@@ -14,14 +14,6 @@ from src.paths import ROOT
 
 PROVIDERS = {
     "xAI": "XAI_API_KEY",
-    "OpenAI-compatible": "OPENAI_API_KEY",
-}
-
-_SOURCE_LABELS = {
-    "colab": "Colab",
-    "env": "biến môi trường",
-    "dotenv": "file .env",
-    "missing": "chưa có",
 }
 
 
@@ -102,14 +94,14 @@ def load_api_keys() -> dict[str, str]:
     return {secret: _resolve(secret) for secret in PROVIDERS.values()}
 
 
-def source_of(provider: str) -> str:
+def source_of(provider: str = "xAI") -> str:
     secret = PROVIDERS.get(provider)
     if not secret:
         return "missing"
     return _resolve(secret)
 
 
-def api_key_for(provider: str) -> str:
+def api_key_for(provider: str = "xAI") -> str:
     """Giá trị dùng để gọi API. Người gọi không được in hoặc ghi log chuỗi này."""
     secret = PROVIDERS.get(provider)
     if not secret:
@@ -119,16 +111,16 @@ def api_key_for(provider: str) -> str:
     return (os.environ.get(secret) or "").strip()
 
 
-def has_api_key(provider: str) -> bool:
+def has_api_key(provider: str = "xAI") -> bool:
     return source_of(provider) != "missing"
 
 
-def missing_message(provider: str) -> str:
-    secret = PROVIDERS.get(provider) or "XAI_API_KEY"
+def missing_message(provider: str = "xAI") -> str:
+    del provider
     return (
-        f"Chưa có API key. Bấm biểu tượng khóa ở thanh bên trái, thêm secret {secret}, "
+        "Chưa có API key. Bấm biểu tượng khóa ở thanh bên trái, thêm secret XAI_API_KEY, "
         "bật Notebook access, rồi khởi động lại runtime. "
-        f"Máy local thì đặt biến {secret} hoặc ghi vào file .env."
+        "Máy local thì đặt biến XAI_API_KEY hoặc ghi vào file .env."
     )
 
 
@@ -155,10 +147,11 @@ def status_html(provider: str) -> str:
 
 
 def summary_line() -> str:
-    """Một dòng trạng thái cho notebook và --doctor. Không có giá trị key."""
-    sources = load_api_keys()
-    parts = [f"{name} ({_SOURCE_LABELS.get(source, 'chưa có')})" for name, source in sources.items()]
-    return "API key: " + ", ".join(parts)
+    """Một dòng cho notebook và --doctor. Chỉ nói đã thấy XAI_API_KEY hay chưa."""
+    source = load_api_keys().get("XAI_API_KEY", "missing")
+    if source == "missing":
+        return "XAI_API_KEY: chưa có."
+    return "XAI_API_KEY: đã có."
 
 
 def redact(text: str) -> str:

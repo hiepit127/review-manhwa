@@ -12,9 +12,7 @@ import pytest
 
 NAMES = (
     "XAI_API_KEY",
-    "OPENAI_API_KEY",
     "RM_API_KEY_FROM_XAI_API_KEY",
-    "RM_API_KEY_FROM_OPENAI_API_KEY",
 )
 
 
@@ -75,17 +73,19 @@ def test_colab_secret_overrides_env_and_is_not_printed(clean_api_env, monkeypatc
     from src.keys import api_key_for, load_api_keys, summary_line
 
     sources = load_api_keys()
-    assert sources == {"XAI_API_KEY": "colab", "OPENAI_API_KEY": "env"}
-    assert api_key_for("xAI") == "colab-value-do-not-print"
+    assert sources == {"XAI_API_KEY": "colab"}
+    assert "OPENAI_API_KEY" not in sources
+    assert api_key_for() == "colab-value-do-not-print"
     assert os.environ["RM_API_KEY_FROM_XAI_API_KEY"] == "colab"
+    assert os.environ["OPENAI_API_KEY"] == "openai-env-value-123456"
     printed = summary_line()
     captured = capsys.readouterr()
     blob = printed + captured.out + captured.err
     assert "colab-value-do-not-print" not in blob
     assert "env-value-should-lose-123" not in blob
     assert "openai-env-value-123456" not in blob
-    assert "XAI_API_KEY (Colab)" in printed
-    assert "OPENAI_API_KEY (biến môi trường)" in printed
+    assert printed == "XAI_API_KEY: đã có."
+    assert "OPENAI_API_KEY" not in printed
 
 
 def test_env_used_when_colab_missing(clean_api_env, monkeypatch, capsys):
@@ -123,9 +123,9 @@ def test_dotenv_used_when_colab_and_env_missing(clean_api_env, monkeypatch, tmp_
     from src.keys import api_key_for, load_api_keys, status_message
 
     sources = load_api_keys()
-    assert sources == {"XAI_API_KEY": "dotenv", "OPENAI_API_KEY": "dotenv"}
-    assert api_key_for("xAI") == "from-dotenv-xai-value"
-    assert api_key_for("OpenAI-compatible") == "from-dotenv-openai-value"
+    assert sources == {"XAI_API_KEY": "dotenv"}
+    assert api_key_for() == "from-dotenv-xai-value"
+    assert os.environ.get("OPENAI_API_KEY") != "from-dotenv-openai-value"
     assert os.environ["XAI_API_KEY"] == "from-dotenv-xai-value"
     text, kind = status_message("xAI")
     assert text == "Đã có API key từ file .env."
@@ -149,13 +149,14 @@ def test_dotenv_does_not_override_env(clean_api_env, monkeypatch, tmp_path):
 def test_missing_names_the_secret_and_prints_nothing(clean_api_env, capsys):
     from src.keys import api_key_for, has_api_key, load_api_keys, status_html, status_message
 
-    assert load_api_keys() == {"XAI_API_KEY": "missing", "OPENAI_API_KEY": "missing"}
+    assert load_api_keys() == {"XAI_API_KEY": "missing"}
     assert os.environ.get("XAI_API_KEY", "") == ""
-    assert api_key_for("xAI") == ""
-    assert has_api_key("OpenAI-compatible") is False
-    text, kind = status_message("OpenAI-compatible")
+    assert api_key_for() == ""
+    assert has_api_key() is False
+    text, kind = status_message("xAI")
     assert kind == "miss"
-    assert "OPENAI_API_KEY" in text
+    assert "XAI_API_KEY" in text
+    assert "OPENAI_API_KEY" not in text
     assert "biểu tượng khóa" in text
     assert "Notebook access" in text
     assert "khởi động lại runtime" in text
@@ -167,7 +168,7 @@ def test_missing_names_the_secret_and_prints_nothing(clean_api_env, capsys):
 
 def test_colab_status_line_when_secret_exists(clean_api_env, monkeypatch):
     install_colab(monkeypatch, lambda name: "colab-status-value-999" if name == "XAI_API_KEY" else "")
-    from src.keys import status_html, status_message
+    from src.keys import status_html, status_message, summary_line
 
     text, kind = status_message("xAI")
     assert kind == "ok"
@@ -175,9 +176,7 @@ def test_colab_status_line_when_secret_exists(clean_api_env, monkeypatch):
     html = status_html("xAI")
     assert "Đã có API key từ Colab Secrets." in html
     assert "colab-status-value-999" not in html
-    openai_text, openai_kind = status_message("OpenAI-compatible")
-    assert openai_kind == "miss"
-    assert "OPENAI_API_KEY" in openai_text
+    assert summary_line() == "XAI_API_KEY: đã có."
 
 
 def test_step_log_and_public_error_redact_key(clean_api_env, monkeypatch, capsys):
@@ -206,10 +205,10 @@ def test_generate_narrations_rejects_blank_key():
             title="",
             chapter="",
             lore="",
-            provider="OpenAI-compatible",
+            provider="xAI",
             api_key="   ",
-            model="gpt-4.1",
-            base_url="https://example.invalid/v1",
+            model="grok-4.7",
+            base_url="",
             use_vision=False,
             temperature=0.6,
             style_key="review",
@@ -217,7 +216,8 @@ def test_generate_narrations_rejects_blank_key():
             log=lambda _message: None,
             progress=lambda *_args, **_kwargs: None,
         )
-    assert "OPENAI_API_KEY" in str(caught.value)
+    assert "XAI_API_KEY" in str(caught.value)
+    assert "OPENAI" not in str(caught.value)
     assert "Notebook access" in str(caught.value)
 
 
@@ -226,17 +226,16 @@ def test_prepare_exports_colab_key_without_printing_it(clean_api_env, monkeypatc
     monkeypatch.setattr(setup, "REPO", tmp_path / "repo")
     install_colab(
         monkeypatch,
-        lambda name: "prepare-secret-value-xyz" if name == "OPENAI_API_KEY" else "",
+        lambda name: "prepare-secret-value-xyz" if name == "XAI_API_KEY" else "",
     )
     setup.prepare(str(tmp_path / "ReviewManhwa"))
-    assert os.environ["OPENAI_API_KEY"] == "prepare-secret-value-xyz"
-    assert os.environ["RM_API_KEY_FROM_OPENAI_API_KEY"] == "colab"
-    assert os.environ.get("XAI_API_KEY", "") == ""
+    assert os.environ["XAI_API_KEY"] == "prepare-secret-value-xyz"
+    assert os.environ["RM_API_KEY_FROM_XAI_API_KEY"] == "colab"
     captured = capsys.readouterr()
     assert "prepare-secret-value-xyz" not in captured.out
     assert "prepare-secret-value-xyz" not in captured.err
-    assert "OPENAI_API_KEY (Colab)" in captured.out
-    assert "XAI_API_KEY (chưa có)" in captured.out
+    assert "OPENAI_API_KEY" not in captured.out
+    assert "XAI_API_KEY:" not in captured.out
     assert "secret" not in captured.out.lower()
 
 
@@ -245,13 +244,16 @@ def test_notebook_tells_user_to_use_colab_secrets():
     notebook = json.loads(open(path, encoding="utf-8").read())
     text = "\n".join("".join(cell["source"]) for cell in notebook["cells"])
     assert "XAI_API_KEY" in text
-    assert "OPENAI_API_KEY" in text
+    assert "OPENAI_API_KEY" not in text
+    assert "OpenAI-compatible" not in text
+    assert "announce=False" in text
+    assert "print(src.storage.summary_lines())" not in text
     assert "Notebook access" in text
     assert "dán API key" not in text
     assert "import src.keys" in text
     readme = open(os.path.join(os.path.dirname(__file__), "..", "README.md"), encoding="utf-8").read()
     assert "XAI_API_KEY" in readme
-    assert "OPENAI_API_KEY" in readme
+    assert "OPENAI_API_KEY" not in readme
     assert "dán API key" not in readme
 
 
@@ -277,8 +279,10 @@ def test_script_step_shows_status_and_disables_write_without_key(clean_api_env, 
     blocks = list(_walk(demo))
     labels = [getattr(block, "label", None) for block in blocks]
     assert "API key" not in labels
-    assert "Nguồn viết lời" in labels
+    assert "Nguồn viết lời" not in labels
+    assert "Base URL" not in labels
     assert "Model" in labels
+    assert "OpenAI-compatible" not in json.dumps(demo.get_config_file(), default=str)
     assert not any(getattr(block, "type", None) == "password" for block in blocks)
     write = next(block for block in blocks if getattr(block, "elem_id", None) == "write-script")
     assert write.interactive is False
@@ -294,7 +298,7 @@ def test_script_step_shows_status_and_disables_write_without_key(clean_api_env, 
 def test_script_step_enables_write_when_env_key_exists(clean_api_env, monkeypatch, tmp_path):
     _isolate_storage(monkeypatch, tmp_path)
     monkeypatch.setenv("XAI_API_KEY", "ui-env-value-do-not-show")
-    from src.ui import build_demo, on_provider, on_script
+    from src.ui import build_demo, on_script
 
     demo = build_demo()
     blocks = list(_walk(demo))
@@ -305,19 +309,9 @@ def test_script_step_enables_write_when_env_key_exists(clean_api_env, monkeypatc
     assert "ui-env-value-do-not-show" not in key_line.value
     config = json.dumps(demo.get_config_file(), default=str)
     assert "ui-env-value-do-not-show" not in config
+    assert "OpenAI-compatible" not in config
 
-    base_url, model, line, button = on_provider("OpenAI-compatible")
-    assert base_url["visible"] is True
-    assert model["value"] == ""
-    assert "OPENAI_API_KEY" in line
-    assert button["interactive"] is False
-    base_url, model, line, button = on_provider("xAI")
-    assert model["value"] == "grok-4.7"
-    assert "Đã có API key từ biến môi trường." in line
-    assert button["interactive"] is True
-    assert "ui-env-value-do-not-show" not in line
-
-    rows = list(on_script("missing-job", 2, "", "", "", "xAI", "", "grok-4.7", 0.6, False, "review", ""))
+    rows = list(on_script("missing-job", 2, "", "", "", "grok-4.7", 0.6, False, "review", ""))
     blob = json.dumps(rows, default=str)
     assert "ui-env-value-do-not-show" not in blob
 
@@ -325,7 +319,7 @@ def test_script_step_enables_write_when_env_key_exists(clean_api_env, monkeypatc
 def test_on_script_reports_missing_key_without_printing_it(clean_api_env, capsys):
     from src.ui import on_script
 
-    rows = list(on_script("", 2, "", "", "", "xAI", "", "grok-4.7", 0.6, False, "review", ""))
+    rows = list(on_script("", 2, "", "", "", "grok-4.7", 0.6, False, "review", ""))
     blob = json.dumps(rows, default=str)
     assert "XAI_API_KEY" in blob
     assert "Notebook access" in blob

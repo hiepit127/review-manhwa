@@ -7,6 +7,8 @@ import importlib
 import os
 import shutil
 import sys
+import threading
+import time
 
 from src.paths import ROOT
 
@@ -76,6 +78,48 @@ def choose_port(port: int | None) -> int | None:
     return None
 
 
+def reserve_port(preferred: int) -> int:
+    """Chọn một cổng còn trống để biết trước URL công khai."""
+    if _port_free(preferred):
+        return preferred
+    for offset in range(1, 20):
+        candidate = preferred + offset
+        if _port_free(candidate):
+            print(f"Cổng {preferred} đang bận. Mở cổng {candidate}.")
+            return candidate
+    return preferred
+
+
+def launch_options(*, in_colab: bool, share: bool) -> dict:
+    """Trên Colab không giao share cho Gradio. debug=True để lỗi hiện trong ô."""
+    if in_colab:
+        return {"share": False, "debug": True}
+    return {"share": bool(share), "debug": False}
+
+
+def _port_open(port: int) -> bool:
+    import socket
+
+    with socket.socket() as sock:
+        sock.settimeout(0.3)
+        return sock.connect_ex(("127.0.0.1", port)) == 0
+
+
+def publish_link(port: int) -> None:
+    """Đợi server rồi in một link. Chạy song song vì launch(debug=True) chặn ô."""
+    deadline = time.time() + 90
+    while time.time() < deadline:
+        if _port_open(port):
+            break
+        time.sleep(0.3)
+    else:
+        print("Không mở được cổng giao diện.", flush=True)
+        return
+    from src.share import choose_public_url, link_line
+
+    print(link_line(choose_public_url(port)), flush=True)
+
+
 def launch(share=None, port: int | None = 7860):
     from src.storage import allowed_paths, prepare_runtime, summary_lines
 
@@ -92,11 +136,17 @@ def launch(share=None, port: int | None = 7860):
     from src.ui import CSS, HEAD, I18N, THEME, build_demo
 
     close_ports(port or 7860)
+    in_colab = _in_colab()
+    options = launch_options(in_colab=in_colab, share=bool(share))
+    bound = reserve_port(port or 7860) if in_colab else choose_port(port)
+    if in_colab and bound is not None:
+        threading.Thread(target=publish_link, args=(bound,), daemon=True).start()
     demo = build_demo()
     kwargs = {
         "server_name": "0.0.0.0",
-        "server_port": choose_port(port),
-        "share": share,
+        "server_port": bound,
+        "share": options["share"],
+        "debug": options["debug"],
         "allowed_paths": allowed_paths(),
         "show_error": True,
         "max_file_size": "1024mb",
