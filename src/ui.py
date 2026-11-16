@@ -170,7 +170,7 @@ footer {display: none !important;}
 #status-line .status.ok {background: #f2f8f4; border-color: #b7d7c6;}
 #status-line .status.wait {background: #fbf6ec; border-color: #ead7b0;}
 #status-line .status.err {background: #fdf4f4; border-color: #e7b4b4; color: #8d2424;}
-#stepper .steps {display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 10px 0 14px;}
+#stepper .steps {display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; margin: 10px 0 14px;}
 #stepper .step {background: #fffdf9; border: 1px solid #e6dfd4; border-radius: 12px; padding: 10px 12px; min-width: 0;}
 #stepper .step b {display: block; font-size: 0.72rem; letter-spacing: 0.04em; color: #8a8178; font-weight: 650;}
 #stepper .step strong {display: block; font-size: 0.98rem; margin-top: 2px; color: #1c1917;}
@@ -304,10 +304,11 @@ def _steps(job, current: str = "source") -> str:
         script_detail = "Viết hoặc nhập lời"
     video_detail = "Đã xuất file" if video_done else "Ghép và tải về"
     items = [
-        ("source", "01", "Nguồn", source_detail, source_done),
-        ("script", "02", "Kịch bản", script_detail, script_done),
-        ("voice", "03", "Giọng", "Chọn giọng đọc", False),
-        ("video", "04", "Video", video_detail, video_done),
+        ("source", "01", "Link", "Lấy trang" if not panels else f"{len(panels)} panel", source_done),
+        ("panels", "02", "Panel", source_detail, source_done),
+        ("script", "03", "Kịch bản", script_detail, script_done),
+        ("voice", "04", "Giọng", "Chọn giọng đọc", False),
+        ("video", "05", "Video", video_detail, video_done),
     ]
     parts = ['<div class="steps">']
     for key, number, title, detail, done in items:
@@ -530,24 +531,26 @@ def _hold_prepare(job_id, message, kind, log):
 
 
 def on_fetch(url, end_chapter, title, chapter, progress=gr.Progress()):
-    from src.comicfetch import fetch_chapters
+    from src.comicfetch import fetch_many, parse_url_lines
 
     log = StepLog()
-    if not (url or "").strip():
+    if not parse_url_lines(url):
         log("Chưa có link chương.")
-        return [], [], _status("Hãy dán link chương truyện.", "err"), log.text(), gr.update(), gr.update()
+        return gr.update(), [], [], _status("Hãy dán link chương, mỗi link một dòng.", "err"), log.text(), gr.update(), gr.update()
     try:
-        fetched = fetch_chapters(url, end_chapter, log, progress)
+        fetched = fetch_many(url, end_chapter, log, progress)
     except Exception as error:
         message = _fail(log, error)
-        return [], [], _status(message, "err"), log.text(), gr.update(), gr.update()
+        return gr.update(), [], [], _status(message, "err"), log.text(), gr.update(), gr.update()
     count = fetched["count"]
+    links = len(parse_url_lines(url))
     next_title = title if (title or "").strip() else fetched["title"]
     next_chapter = chapter if (chapter or "").strip() else fetched["chapter"]
     return (
+        fetched["job_id"],
         fetched["pages"],
         fetched["pages"],
-        _status(f"Đã lấy {count} trang. Bấm Tách panel để cắt và đọc chữ.", "ok"),
+        _status(f"Đã lấy {count} trang từ {links} link. Bấm Tách panel.", "ok"),
         log.text(),
         next_title,
         next_chapter,
@@ -573,10 +576,22 @@ def on_prepare(
     progress=gr.Progress(),
 ):
     log = StepLog()
-    yield _hold_prepare(job_id, "Đang tách panel và đọc chữ. Cứ để tab mở.", "wait", log)
+    yield _hold_prepare(job_id, "Đang tách panel. Cứ để tab mở.", "wait", log)
+    incoming = as_list(files) + [path for path in (pasted or []) if path] + [path for path in (fetched or []) if path]
     try:
-        job = prepare_job(
-            as_list(files) + [path for path in (pasted or []) if path] + [path for path in (fetched or []) if path],
+        saved_pages = []
+        if job_id:
+            try:
+                saved_pages = list(load_job(job_id).get("pages") or [])
+            except (OSError, FileNotFoundError, ValueError):
+                saved_pages = []
+        if not incoming and saved_pages:
+            from src.panelboard import split_existing
+
+            job = split_existing(job_id, rtl, log)
+        else:
+            job = prepare_job(
+                incoming,
             title=title,
             chapter=chapter,
             lore=lore,
@@ -616,6 +631,42 @@ def on_prepare(
     )
 
 
+def _panel_view(job):
+    return [job_abs(job, panel["image"]) for panel in job.get("panels") or [] if panel.get("image")]
+
+
+def _edit_panels(job_id, action, number, extra_files):
+    from src.panelboard import add_panel_files, move_panel, remove_panel, restore_panel
+    from src.textutil import as_list, file_path
+
+    log = StepLog()
+    if not job_id:
+        log("Hãy tách panel trước.")
+        return gr.update(), _status("Hãy tách panel trước.", "err"), log.text()
+    try:
+        if action == "remove":
+            job = remove_panel(job_id, int(number or 1))
+            note = f"Đã xóa panel {int(number)}. Còn {len(job.get('panels') or [])}."
+        elif action == "up":
+            job = move_panel(job_id, int(number or 1), -1)
+            note = "Đã đưa panel lên."
+        elif action == "down":
+            job = move_panel(job_id, int(number or 1), 1)
+            note = "Đã đưa panel xuống."
+        elif action == "restore":
+            job = restore_panel(job_id)
+            note = f"Đã thêm lại panel. Có {len(job.get('panels') or [])} panel."
+        else:
+            paths = [file_path(item) for item in as_list(extra_files)]
+            job = add_panel_files(job_id, [path for path in paths if path])
+            note = f"Đã thêm ảnh. Có {len(job.get('panels') or [])} panel."
+    except Exception as error:
+        message = _fail(log, error)
+        return gr.update(), _status(message, "err"), log.text()
+    log(note)
+    return _panel_view(job), _status(note + " Đã lưu trên cache.", "ok"), log.text()
+
+
 def on_script(
     job_id,
     scene_count,
@@ -627,37 +678,41 @@ def on_script(
     use_vision,
     style,
     notes,
+    subtitle,
+    langs,
+    use_gpu,
     progress=gr.Progress(),
 ):
     from src.keys import api_key_for, has_api_key, missing_message
+    from src.pipeline import write_panel_script
+    from src.script import read_style_sample
+    from src.textutil import file_path
 
+    del scene_count
     log = StepLog()
-    if not has_api_key():
-        message = missing_message()
-        log(message)
-        yield gr.update(), gr.update(), _status(message, "err"), _steps(_safe_job(job_id), "script"), log.text()
-        return
     if not job_id:
         log("Hãy tách panel trước.")
         yield gr.update(), gr.update(), _status("Hãy tách panel trước.", "err"), _steps(None, "script"), log.text()
         return
-    api_key = api_key_for()
-    yield gr.update(), gr.update(), _status("Đang viết kịch bản. Cứ để tab mở.", "wait"), _steps(_safe_job(job_id), "script"), log.text()
+    reference = read_style_sample(file_path(subtitle) or "")
+    if reference:
+        log("Đã đọc file mẫu cách kể. Chỉ học giọng văn, không chép nội dung.")
+    yield gr.update(), gr.update(), _status("Đang đọc chữ và viết lời từng panel.", "wait"), _steps(_safe_job(job_id), "script"), log.text()
     try:
-        job = write_script(
+        job = write_panel_script(
             job_id,
-            scene_count,
             title=title,
             chapter=chapter,
             lore=lore,
-            provider="xAI",
-            api_key=api_key,
-            base_url="",
+            api_key=api_key_for() if has_api_key() else "",
             model=model,
             temperature=temperature,
             use_vision=use_vision,
             style_key=style,
             notes=notes,
+            style_reference=reference,
+            langs=langs,
+            use_gpu=use_gpu,
             log=log,
             progress=progress,
         )
@@ -667,10 +722,14 @@ def on_script(
         return
     filled = sum(1 for scene in job.get("scenes") or [] if (scene.get("narration") or "").strip())
     total = len(job.get("scenes") or [])
+    if not has_api_key():
+        message, kind = missing_message() + " Bảng lời đã tạo, có thể sửa tay.", "wait"
+    else:
+        message, kind = f"Đã có lời cho {filled}/{total} panel. Sửa cột Lời review nếu cần.", "ok"
     yield (
         scenes_to_table(job.get("scenes") or []),
         _script_file(job),
-        _status(f"Đã có lời cho {filled}/{total} cảnh. Sửa cột Lời review nếu cần.", "ok"),
+        _status(message, kind),
         _steps(job, "voice"),
         log.text(),
     )
@@ -701,7 +760,7 @@ def on_voices():
     try:
         from src.tts import list_voices
 
-        labels = list_voices(log)
+        labels = list_voices(log, refresh=True)
         return (
             _voice_update(labels),
             _voice_update(labels),
@@ -1038,7 +1097,8 @@ def build_demo():
                     )
                     chapter_url = gr.Textbox(
                         label="Link chương truyện",
-                        placeholder="https://www.zettruyen5.com/truyen-tranh/.../chuong-1",
+                        lines=5,
+                        placeholder="Mỗi dòng một link. Ví dụ:\nhttps://.../chuong-1\nhttps://.../chuong-2",
                     )
                     end_chapter = gr.Number(
                         label="Đến chương (0 = chỉ link này)",
@@ -1096,7 +1156,7 @@ def build_demo():
                     with gr.Row():
                         do_slice = gr.Checkbox(value=True, label="Tự cắt panel")
                         rtl = gr.Checkbox(value=False, label="Trong một hàng, đọc phải sang trái")
-                        do_ocr = gr.Checkbox(value=True, label="Đọc chữ (OCR)")
+                        do_ocr = gr.Checkbox(value=False, label="Đọc chữ ngay (thường để bước Kịch bản)")
                         use_gpu = gr.Checkbox(value=True, label="OCR dùng GPU nếu có")
                     langs = gr.CheckboxGroup(
                         choices=[("Tiếng Hàn", "ko"), ("Tiếng Anh", "en"), ("Tiếng Việt", "vi")],
@@ -1111,6 +1171,15 @@ def build_demo():
                 prepare = gr.Button("Tách panel", variant="primary", elem_id="go-prepare")
                 gr.Markdown("Lần đầu OCR có thể mất vài phút. Thanh tiến trình hiện phía trên.", elem_classes="hint")
                 gallery = gr.Gallery(label="Panel đã tách", columns=5, height=420, preview=True, object_fit="contain")
+                with gr.Row():
+                    panel_number = gr.Number(label="Số panel", value=1, precision=0, minimum=1)
+                    extra_panels = gr.File(label="Thêm ảnh panel", file_count="multiple", file_types=[".png", ".jpg", ".jpeg", ".webp"])
+                with gr.Row():
+                    remove_panel_btn = gr.Button("Xóa panel này", size="md")
+                    panel_up = gr.Button("Đưa lên", size="md")
+                    panel_down = gr.Button("Đưa xuống", size="md")
+                    restore_panel_btn = gr.Button("Thêm lại panel đã xóa", size="md")
+                    add_panel_btn = gr.Button("Thêm ảnh đã chọn", size="md")
                 panel_table = gr.Dataframe(
                     headers=PANEL_HEADERS,
                     label="Chữ đọc được",
@@ -1145,11 +1214,12 @@ def build_demo():
                         temperature = gr.Slider(0, 1.2, value=0.6, step=0.05, label="Độ sáng tạo")
                         use_vision = gr.Checkbox(value=False, label="Gửi ảnh panel cho model")
                     notes = gr.Textbox(label="Ghi chú thêm cho lời thoại", lines=2, placeholder="Ví dụ: xưng hô ngắn, không spoil chương sau.")
+                    style_file = gr.File(label="File mẫu cách kể (.srt, .vtt, .txt)", file_types=[".srt", ".vtt", ".txt"])
+                    gr.Markdown("File mẫu là truyện khác. Model học cách kể, không chép nội dung.", elem_classes="hint")
                 with gr.Row():
                     write = gr.Button(
-                        "Viết kịch bản",
+                        "Đọc chữ và viết lời",
                         variant="primary",
-                        interactive=has_api_key(),
                         elem_id="write-script",
                     )
                     manual = gr.Button("Chia cảnh, tôi viết tay", size="md")
@@ -1174,7 +1244,7 @@ def build_demo():
                 with gr.Group(elem_classes="card"):
                     with gr.Row():
                         voice_lab = gr.Dropdown(choices=voice_choices(), value="Hải Đăng", label="Giọng cho video", scale=4)
-                        refresh_lab = gr.Button("Tải danh sách giọng", size="md", scale=0, min_width=180)
+                        refresh_lab = gr.Button("Làm mới danh sách giọng", size="md", scale=0, min_width=180)
                     with gr.Row():
                         to_clone_voice = gr.Button("Tạo giọng mới", elem_classes=["clone-link"], scale=0, min_width=140)
                     trial_text = gr.Textbox(
@@ -1190,7 +1260,7 @@ def build_demo():
                 with gr.Group(elem_classes="card"):
                     with gr.Row():
                         voice = gr.Dropdown(choices=voice_choices(), value="Hải Đăng", label="Giọng đã lưu", scale=4)
-                        refresh = gr.Button("Tải danh sách giọng", size="md", scale=0, min_width=180)
+                        refresh = gr.Button("Làm mới danh sách giọng", size="md", scale=0, min_width=180)
                     with gr.Row():
                         to_clone_video = gr.Button("Tạo giọng mới", elem_classes=["clone-link"], scale=0, min_width=140)
                     preview = gr.Button("Nghe thử câu kịch bản", size="md")
@@ -1350,8 +1420,13 @@ def build_demo():
         fetch_btn.click(
             on_fetch,
             [chapter_url, end_chapter, title, chapter],
-            [fetched_state, fetched_gallery, status, log_box, title, chapter],
+            [job_state, fetched_state, fetched_gallery, status, log_box, title, chapter],
         )
+        remove_panel_btn.click(lambda job_id, number: _edit_panels(job_id, "remove", number, None), [job_state, panel_number], [gallery, status, log_box])
+        panel_up.click(lambda job_id, number: _edit_panels(job_id, "up", number, None), [job_state, panel_number], [gallery, status, log_box])
+        panel_down.click(lambda job_id, number: _edit_panels(job_id, "down", number, None), [job_state, panel_number], [gallery, status, log_box])
+        restore_panel_btn.click(lambda job_id: _edit_panels(job_id, "restore", 1, None), [job_state], [gallery, status, log_box])
+        add_panel_btn.click(lambda job_id, files: _edit_panels(job_id, "add", 1, files), [job_state, extra_panels], [gallery, status, log_box])
         prepare.click(
             on_prepare,
             [files, pasted_state, fetched_state, title, chapter, lore, start_page, end_page, do_slice, rtl, do_ocr, langs, use_gpu, force_redo, job_state],
@@ -1359,7 +1434,7 @@ def build_demo():
         )
         write.click(
             on_script,
-            [job_state, scene_count, title, chapter, lore, model, temperature, use_vision, style, notes],
+            [job_state, scene_count, title, chapter, lore, model, temperature, use_vision, style, notes, style_file, langs, use_gpu],
             [script_table, script_file, status, steps, log_box],
         )
         manual.click(on_manual, [job_state, scene_count, title, chapter, lore], [script_table, status, steps, log_box])

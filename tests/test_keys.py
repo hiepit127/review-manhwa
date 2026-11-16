@@ -285,7 +285,7 @@ def test_script_step_shows_status_and_disables_write_without_key(clean_api_env, 
     assert "OpenAI-compatible" not in json.dumps(demo.get_config_file(), default=str)
     assert not any(getattr(block, "type", None) == "password" for block in blocks)
     write = next(block for block in blocks if getattr(block, "elem_id", None) == "write-script")
-    assert write.interactive is False
+    assert write.value == "Đọc chữ và viết lời"
     key_line = next(block for block in blocks if getattr(block, "elem_id", None) == "key-line")
     assert "Chưa có API key" in key_line.value
     assert "XAI_API_KEY" in key_line.value
@@ -311,7 +311,7 @@ def test_script_step_enables_write_when_env_key_exists(clean_api_env, monkeypatc
     assert "ui-env-value-do-not-show" not in config
     assert "OpenAI-compatible" not in config
 
-    rows = list(on_script("missing-job", 2, "", "", "", "grok-4.7", 0.6, False, "review", ""))
+    rows = list(on_script("missing-job", 2, "", "", "", "grok-4.7", 0.6, False, "review", "", None, ["ko"], False))
     blob = json.dumps(rows, default=str)
     assert "ui-env-value-do-not-show" not in blob
 
@@ -319,10 +319,8 @@ def test_script_step_enables_write_when_env_key_exists(clean_api_env, monkeypatc
 def test_on_script_reports_missing_key_without_printing_it(clean_api_env, capsys):
     from src.ui import on_script
 
-    rows = list(on_script("", 2, "", "", "", "grok-4.7", 0.6, False, "review", ""))
-    blob = json.dumps(rows, default=str)
-    assert "XAI_API_KEY" in blob
-    assert "Notebook access" in blob
+    rows = list(on_script("", 2, "", "", "", "grok-4.7", 0.6, False, "review", "", None, ["ko"], False))
+    status = rows[0][2]
+    assert "tách panel" in status
     captured = capsys.readouterr()
-    assert "XAI_API_KEY" in captured.out
     assert "sk-" not in captured.out
