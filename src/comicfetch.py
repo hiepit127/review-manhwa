@@ -221,6 +221,9 @@ def extract_page(html: str, page_url: str) -> dict:
     other_urls = []
     for image in parser.images:
         src = _img_url(image["attrs"])
+        label = f"{image['attrs'].get('alt', '')} {image['attrs'].get('title', '')}".lower()
+        if any(word in label for word in ("banner", "logo", "icon", "quảng cáo")):
+            continue
         if not src or _too_small(image["attrs"]):
             continue
         absolute = _absolute(page_url, src)
@@ -231,7 +234,9 @@ def extract_page(html: str, page_url: str) -> dict:
     urls = _dedupe(chapter_urls or other_urls)
     if not urls:
         urls = _dedupe(_absolute(page_url, item) for item in _IMG_IN_TEXT.findall(html or "") if _usable(item))
-    urls = _reading_order([url for url in urls if _chapter_image(url)])
+    urls = [url for url in urls if _chapter_image(url)]
+    numbered = [url for url in urls if _page_number(url) is not None]
+    urls = _reading_order(numbered or urls)
     title = parser.og_title or parser.h1 or parser.title
     title = re.sub(r"\s*[-|–]\s*(Đọc|ZetTruyen|NetTruyen|TruyenQQ|BlogTruyen).*$", "", title, flags=re.IGNORECASE).strip()
     chapter = ""
