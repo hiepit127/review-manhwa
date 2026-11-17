@@ -60,6 +60,42 @@ def saved_names() -> list[str]:
     return [item["name"] for item in saved_voices()]
 
 
+def _read_index() -> dict:
+    path = _index_path()
+    if not os.path.isfile(path):
+        return {"voices": []}
+    try:
+        with open(path, encoding="utf-8") as handle:
+            payload = json.load(handle)
+    except (OSError, json.JSONDecodeError):
+        return {"voices": []}
+    if not isinstance(payload, dict):
+        return {"voices": []}
+    payload.setdefault("voices", [])
+    return payload
+
+
+def load_preset_names() -> list[str] | None:
+    """Danh sách giọng có sẵn đã cache. None nếu chưa từng tải."""
+    names = _read_index().get("presets")
+    if not isinstance(names, list) or not names:
+        return None
+    cleaned = [str(name).strip() for name in names if str(name).strip()]
+    return cleaned or None
+
+
+def save_preset_names(names: list[str]) -> None:
+    """Ghi danh sách giọng có sẵn vào index.json, giữ nguyên giọng đã clone."""
+    payload = _read_index()
+    payload["presets"] = [str(name).strip() for name in names if str(name).strip()]
+    path = _index_path()
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    temporary = path + ".tmp"
+    with open(temporary, "w", encoding="utf-8") as handle:
+        json.dump(payload, handle, ensure_ascii=False, indent=2)
+    os.replace(temporary, path)
+
+
 def is_saved(name: str) -> bool:
     folded = (name or "").strip().casefold()
     return any(item["name"].casefold() == folded for item in saved_voices())

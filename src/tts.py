@@ -127,23 +127,33 @@ def register_saved(engine, log=None) -> None:
         _ENROLLED.add(name)
 
 
-def list_voices(log=None) -> list[str]:
-    from src.voices import saved_names
+def list_voices(log=None, refresh: bool = False) -> list[str]:
+    """Danh sách giọng. Lần sau đọc cache trên Drive, trừ khi bấm làm mới."""
+    from src.voices import load_preset_names, save_preset_names, saved_names
 
-    engine = get_engine(log)
-    try:
-        voices = engine.list_preset_voices()
-    except Exception as error:
+    cached = None if refresh else load_preset_names()
+    if cached:
         if log:
-            log(f"Không lấy được danh sách giọng ({error}). Dùng danh sách có sẵn.")
-        voices = []
-    labels = []
-    for item in voices or []:
-        label = _voice_id(item)
-        if label not in labels:
-            labels.append(label)
-    if not labels:
-        labels = list(FALLBACK_VOICES)
+            log(f"Dùng danh sách giọng đã cache ({len(cached)} giọng).")
+        labels = list(cached)
+    else:
+        engine = get_engine(log)
+        try:
+            voices = engine.list_preset_voices()
+        except Exception as error:
+            if log:
+                log(f"Không lấy được danh sách giọng ({error}). Dùng danh sách có sẵn.")
+            voices = []
+        labels = []
+        for item in voices or []:
+            label = _voice_id(item)
+            if label not in labels:
+                labels.append(label)
+        if not labels:
+            labels = list(FALLBACK_VOICES)
+        save_preset_names(labels)
+        if log:
+            log(f"Đã ghi {len(labels)} giọng vào cache.")
     for name in saved_names():
         if name not in labels:
             labels.append(name)
@@ -151,10 +161,10 @@ def list_voices(log=None) -> list[str]:
 
 
 def voice_choices() -> list[str]:
-    """Danh sách hiện trên UI khi model chưa mở."""
-    from src.voices import saved_names
+    """Danh sách hiện trên UI. Có cache thì không mở model."""
+    from src.voices import load_preset_names, saved_names
 
-    labels = list(FALLBACK_VOICES)
+    labels = list(load_preset_names() or FALLBACK_VOICES)
     for name in saved_names():
         if name not in labels:
             labels.append(name)

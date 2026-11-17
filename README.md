@@ -34,12 +34,13 @@ Cùng cách với [Audio Full Truyện](https://github.com/hiepit127/generate-yt
 4. **Runtime → Run all.** Ô 2 gắn Drive. Ô 4 tạo thư mục và cài thư viện. Ô 5 mở giao diện.
 5. Giao diện hiện trong khung notebook. Ô 5 in một dòng `Mở giao diện:` — đó là link mở từ máy khác. Link Gradio (`*.gradio.live`) được thử vài lần. Nếu đường hầm frpc của Gradio không tạo được, app chuyển sang Cloudflare (`*.trycloudflare.com`), rồi tới URL proxy của Colab.
 
-Trong giao diện, thanh trên cùng hiện đang lưu ở đâu. Làm lần lượt bốn bước:
+Trong giao diện, thanh trên cùng hiện đang lưu ở đâu. Làm lần lượt năm bước:
 
-1. **Nguồn** — dán link chương rồi bấm `Lấy truyện`, hoặc tải ảnh, PDF, ZIP, hoặc dán từng trang. Sau đó bấm `Tách panel`. Ảnh lấy về nằm trong `cache/jobs/<job>/source`. Việc cũ nằm ở **Việc đã lưu**.
-2. **Kịch bản** — bấm `Viết kịch bản`. Lời viết bằng xAI (`grok-4.7`). API key lấy từ Colab Secrets `XAI_API_KEY` (hoặc biến môi trường / `.env` khi chạy local), không có ô nhập key. Dòng trạng thái báo đã thấy key, hoặc nhắc thêm secret đó. Nút `Viết kịch bản` tắt khi chưa có key. Sửa cột `Lời review` nếu câu chữ chưa ổn. Không có API thì bấm `Chia cảnh, tôi viết tay`.
-3. **Giọng** — chọn giọng đã có trong danh sách, rồi bấm `Nghe giọng này`. Giọng mới tạo ở màn **Tạo giọng**.
-4. **Video** — `Nghe thử câu kịch bản` đọc câu đầu. `Xuất video` ghép file và chép vào thư mục output. Đường dẫn hiện ở ô `File đã lưu`.
+1. **Link** — dán một hoặc nhiều link chương (mỗi dòng một link) rồi bấm `Lấy truyện`. Ảnh nằm trong `cache/jobs/<job>/source`.
+2. **Panel** — bấm `Tách panel`. Xóa, thêm, hoặc đổi thứ tự panel. Danh sách ghi vào manifest trên Drive.
+3. **Kịch bản** — `Đọc chữ và viết lời` chạy OCR rồi xAI viết một câu cho mỗi panel. Sửa cột `Lời review`. Có thể tải file `.srt` / `.vtt` / `.txt` của truyện khác để model học cách kể, không chép nội dung. API key là secret `XAI_API_KEY`.
+4. **Giọng** — chọn giọng đã có. Lần đầu bấm `Làm mới danh sách giọng` để ghi cache vào `cache/voices/index.json`. Lần sau mở lại từ cache. Giọng mới tạo ở màn **Tạo giọng**.
+5. **Video** — `Nghe thử câu kịch bản` đọc câu đầu. `Xuất video` ghép file và chép vào thư mục output. Đường dẫn hiện ở ô `File đã lưu`.
 
 Màn **Đọc** cũng chỉ chọn giọng đã có, nghe nhanh, rồi dán chữ. `Đọc đoạn này` lưu wav trong thư mục output.
 

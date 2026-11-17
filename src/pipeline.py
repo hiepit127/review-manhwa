@@ -134,6 +134,105 @@ def prepare_job(
     return job
 
 
+def _one_scene_per_panel(panels: list[dict]) -> list[dict]:
+    from src.scenes import group_panels
+
+    if not panels:
+        return []
+    return group_panels(panels, len(panels))
+
+
+def ensure_ocr(job: dict, langs, use_gpu: bool, log, progress) -> None:
+    """Đọc chữ các panel còn trống. Thiếu EasyOCR thì bỏ qua, vẫn cho sửa lời tay."""
+    pending = [panel for panel in job.get("panels") or [] if not (panel.get("ocr") or "").strip()]
+    if not pending:
+        log("Các panel đã có chữ OCR.")
+        return
+    try:
+        from src.ocr import read_images
+    except Exception as error:
+        log(f"Chưa đọc được chữ ({error.__class__.__name__}). Có thể viết tay cột Lời review.")
+        return
+    paths = [job_abs(job, panel["image"]) for panel in job.get("panels") or []]
+    try:
+        texts = read_images(paths, list(langs or ["ko", "en"]), bool(use_gpu), log, progress or _noop)
+    except Exception as error:
+        log(f"OCR lỗi ({error.__class__.__name__}). Có thể viết tay cột Lời review.")
+        return
+    for panel, text in zip(job.get("panels") or [], texts):
+        panel["ocr"] = text or ""
+    save_job(job)
+
+
+def write_panel_script(
+    job_id: str,
+    *,
+    title: str,
+    chapter: str,
+    lore: str,
+    api_key: str,
+    model: str,
+    temperature: float,
+    use_vision: bool,
+    style_key: str,
+    notes: str,
+    style_reference: str,
+    langs,
+    use_gpu: bool,
+    log,
+    progress=None,
+) -> dict:
+    """OCR từng panel rồi viết một câu lời cho mỗi panel."""
+    progress = progress or _noop
+    job = load_job(job_id)
+    _meta(job, title, chapter, lore)
+    if not job.get("panels"):
+        raise RuntimeError("Chưa có panel. Hãy tách panel trước.")
+    progress(0.02, desc="Đọc chữ trên panel")
+    ensure_ocr(job, langs, use_gpu, log, lambda fraction, desc=None: progress(0.02 + 0.35 * float(fraction), desc=desc))
+    scenes = _one_scene_per_panel(job.get("panels") or [])
+    job["scenes"] = scenes
+    save_job(job)
+    if not (api_key or "").strip():
+        _write_script_file(job)
+        log("Chưa có API key. Bảng lời để trống, có thể sửa tay.")
+        return job
+    from src.script import generate_narrations
+
+    for scene in job["scenes"]:
+        scene["abs_images"] = [job_abs(job, relative) for relative in scene["images"]]
+    try:
+        narrations = generate_narrations(
+            job["scenes"],
+            title=job["title"],
+            chapter=job["chapter"],
+            lore=job["lore"],
+            provider="xAI",
+            api_key=api_key or "",
+            model=model or "",
+            base_url="",
+            use_vision=bool(use_vision),
+            temperature=float(temperature if temperature is not None else 0.6),
+            style_key=style_key or "review",
+            notes=notes or "",
+            style_reference=style_reference or "",
+            log=log,
+            progress=lambda fraction, desc=None: progress(0.4 + 0.6 * float(fraction), desc=desc),
+        )
+    except Exception as error:
+        raise RuntimeError(public_error(error, api_key or "")) from None
+    finally:
+        for scene in job["scenes"]:
+            scene.pop("abs_images", None)
+    for scene, text in zip(job["scenes"], narrations):
+        scene["narration"] = text
+    save_job(job)
+    _write_script_file(job)
+    filled = sum(1 for scene in job["scenes"] if scene.get("narration"))
+    log(f"Đã có lời cho {filled}/{len(job['scenes'])} panel.")
+    return job
+
+
 def assign_scenes(job_id: str, scene_count, title: str, chapter: str, lore: str, log) -> dict:
     job = load_job(job_id)
     _meta(job, title, chapter, lore)

@@ -399,6 +399,9 @@ def download_pages(urls: list[str], folder: str, referer: str, log, progress=Non
     if len(urls) > 400:
         raise RuntimeError("Quá nhiều ảnh trên trang. Có thể đã lấy nhầm cả website, không phải một chương.")
     payloads = _download_ordered(urls, referer, timeout, log, progress)
+    already = 0
+    if os.path.isdir(folder):
+        already = len([name for name in os.listdir(folder) if name.startswith("page_")])
     saved = []
     for payload in payloads:
         if not payload:
@@ -410,23 +413,46 @@ def download_pages(urls: list[str], folder: str, referer: str, log, progress=Non
             continue
         if not png:
             continue
-        path = os.path.join(folder, f"page_{len(saved) + 1:04d}.png")
+        path = os.path.join(folder, f"page_{already + len(saved) + 1:04d}.png")
         with open(path, "wb") as handle:
             handle.write(png)
         saved.append(path)
     return saved
 
 
-def fetch_chapters(url: str, end_chapter, log, progress=None) -> dict:
-    """Tải chương vào ``cache/jobs/<job>/source``. Trả về đường dẫn PNG và tên truyện."""
-    pages = chapter_urls(url, end_chapter)
+def parse_url_lines(text: str) -> list[str]:
+    """Mỗi dòng một link. Bỏ dòng trống."""
+    return [line.strip() for line in (text or "").splitlines() if line.strip()]
+
+
+def _save_fetch_job(job_id: str, saved: list[str], title: str, chapter: str) -> dict:
+    from src.jobs import save_job
+
+    folder = job_dir(job_id)
+    job = {
+        "id": job_id,
+        "title": title,
+        "chapter": chapter,
+        "lore": "",
+        "pages": [os.path.relpath(path, folder) for path in saved],
+        "panels": [],
+        "scenes": [],
+        "removed": [],
+    }
+    save_job(job)
+    job["dir"] = folder
+    return job
+
+
+def _fetch_page_list(pages: list[str], log, progress=None) -> dict:
+    """Tải lần lượt các URL chương vào một job trên Drive."""
     job_id = new_job_id()
     folder = os.path.join(job_dir(job_id), "source")
     saved: list[str] = []
     title = ""
     chapter = ""
     for index, page in enumerate(pages):
-        log(f"Đọc trang chương {index + 1}/{len(pages)}")
+        log(f"Đọc link {index + 1}/{len(pages)}")
         html = fetch_html(page)
         extracted = extract_page(html, page)
         if not extracted["urls"]:
@@ -438,10 +464,10 @@ def fetch_chapters(url: str, end_chapter, log, progress=None) -> dict:
         chapter = extracted["chapter"] or chapter
         log(f"Thấy {len(extracted['urls'])} ảnh.")
 
-        def chapter_progress(fraction, desc=None):
+        def chapter_progress(fraction, desc=None, _index=index):
             if not progress:
                 return
-            overall = (index + float(fraction)) / len(pages)
+            overall = (_index + float(fraction)) / len(pages)
             progress(overall, desc=desc)
 
         saved.extend(download_pages(extracted["urls"], folder, page, log, chapter_progress))
@@ -452,5 +478,29 @@ def fetch_chapters(url: str, end_chapter, log, progress=None) -> dict:
         match_end = _CHAPTER_IN_URL.search(pages[-1])
         if match_start and match_end:
             chapter = f"Chương {int(match_start.group(2))}-{int(match_end.group(2))}"
+    _save_fetch_job(job_id, saved, title, chapter)
     log(f"Đã lưu {len(saved)} trang vào {folder}")
     return {"job_id": job_id, "dir": folder, "pages": saved, "title": title, "chapter": chapter, "count": len(saved)}
+
+
+def fetch_chapters(url: str, end_chapter, log, progress=None) -> dict:
+    """Tải một chương, hoặc một khoảng chương, vào ``cache/jobs/<job>/source``."""
+    return _fetch_page_list(chapter_urls(url, end_chapter), log, progress)
+
+
+def fetch_many(text: str, end_chapter, log, progress=None) -> dict:
+    """Một hoặc nhiều link, mỗi dòng một chương, ghép đúng thứ tự dòng."""
+    lines = parse_url_lines(text)
+    if not lines:
+        raise RuntimeError("Hãy dán ít nhất một link chương, mỗi link một dòng.")
+    if len(lines) == 1:
+        return fetch_chapters(lines[0], end_chapter, log, progress)
+    try:
+        end = int(end_chapter or 0)
+    except (TypeError, ValueError):
+        end = 0
+    if end > 0:
+        log("Có nhiều link: lấy đúng các dòng đã dán, không dùng ô Đến chương.")
+    for line in lines:
+        chapter_urls(line, 0)
+    return _fetch_page_list(lines, log, progress)

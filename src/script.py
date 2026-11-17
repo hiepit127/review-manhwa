@@ -67,6 +67,16 @@ def _user_prompt(scenes: list[dict], meta: dict, tail: str) -> str:
     ]
     if meta.get("notes"):
         lines.extend(["", "Ghi chú của người review:", meta["notes"]])
+    reference = (meta.get("style_reference") or "").strip()
+    if reference:
+        lines.extend(
+            [
+                "",
+                "Mẫu cách kể từ một truyện khác. Học giọng văn, nhịp và cách dẫn chuyện "
+                "để người nghe dễ theo. Không chép nội dung, tên nhân vật hay tình tiết của mẫu.",
+                reference,
+            ]
+        )
     if tail:
         lines.extend(["", f"Đoạn liền trước, nối mạch và đừng lặp lại: {tail}"])
     lines.extend(
@@ -84,6 +94,28 @@ def _user_prompt(scenes: list[dict], meta: dict, tail: str) -> str:
 
 XAI_BASE_URL = "https://api.x.ai/v1"
 XAI_MODEL = "grok-4.7"
+
+
+def read_style_sample(path: str) -> str:
+    """Đọc .srt, .vtt hoặc .txt. Bỏ mốc thời gian. Cắt ngắn để không nhét cả truyện vào prompt."""
+    if not path or not os.path.isfile(path):
+        return ""
+    try:
+        text = open(path, encoding="utf-8", errors="replace").read()
+    except OSError:
+        return ""
+    kept = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.isdigit() or "-->" in stripped:
+            continue
+        if stripped.upper().startswith("WEBVTT") or stripped.upper().startswith("NOTE"):
+            continue
+        kept.append(stripped)
+    sample = "\n".join(kept).strip()
+    if len(sample) > 3500:
+        sample = sample[:3500] + "…"
+    return sample
 
 
 def _openai_compatible(api_key: str, base_url: str, model: str, system: str, prompt: str, scenes: list[dict], use_vision: bool, temperature: float) -> str:
@@ -149,6 +181,7 @@ def generate_narrations(
     temperature: float,
     style_key: str,
     notes: str,
+    style_reference: str = "",
     log,
     progress,
 ) -> list[str]:
@@ -177,6 +210,7 @@ def generate_narrations(
                 "lore": lore,
                 "style_text": style_text,
                 "notes": notes,
+                "style_reference": style_reference,
             },
             tail,
         )
